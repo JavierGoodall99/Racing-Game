@@ -33,6 +33,9 @@ export type GameState = {
     gameOver: boolean;
     gameWon: boolean;
     speed: number;
+    nitro: number;
+    multiplier: number;
+    distance: number;
 };
 
 export class GameEngine {
@@ -43,13 +46,14 @@ export class GameEngine {
     private vehicle!: Vehicle;
     private chassisMesh!: THREE.Group;
     private wheelMeshes: THREE.Group[] = [];
-    private controls = { forward: false, backward: false, left: false, right: false, brake: false };
+    private controls = { forward: false, backward: false, left: false, right: false, brake: false, nitro: false };
     private lastTime: number = 0;
     private animationFrameId: number = 0;
     private timerId: any;
     private currentLookAt: THREE.Vector3 = new THREE.Vector3();
     
     private coins: { mesh: THREE.Group, body: RigidBody, collected: boolean, basePos: THREE.Vector3 }[] = [];
+    private traffic: { mesh: THREE.Group, body: RigidBody, speed: number, lane: number }[] = [];
     private onStateChange: (state: GameState) => void;
     
     public state: GameState = {
@@ -57,8 +61,16 @@ export class GameEngine {
         timeLeft: 60,
         gameOver: false,
         gameWon: false,
-        speed: 0
+        speed: 0,
+        nitro: 100,
+        multiplier: 1,
+        distance: 0
     };
+
+    private roadLength = 2000;
+    private startZ = 50;
+    private layerMoving!: number;
+    private queryFilter!: any;
 
     constructor(canvas: HTMLCanvasElement, onStateChange: (state: GameState) => void) {
         this.onStateChange = onStateChange;
@@ -108,17 +120,21 @@ export class GameEngine {
         enableCollision(worldSettings, LAYER_MOVING, LAYER_STATIC);
 
         this.world = createWorld(worldSettings);
-        const queryFilter = filter.create(worldSettings.layers);
-        filter.enableAllLayers(queryFilter, worldSettings.layers);
+        this.queryFilter = filter.create(worldSettings.layers);
+        filter.enableAllLayers(this.queryFilter, worldSettings.layers);
+        this.layerMoving = LAYER_MOVING;
 
         // --- Track Generation ---
         this.createScenicTrack(LAYER_STATIC);
 
         // --- Vehicle Setup ---
-        this.createSupercarVehicle(LAYER_MOVING, queryFilter);
+        this.createSupercarVehicle(LAYER_MOVING, this.queryFilter);
         
         // --- Coins Setup ---
         this.createFestivalRings(LAYER_STATIC);
+
+        // --- Traffic Setup ---
+        this.spawnTraffic(LAYER_MOVING);
 
         // --- Input ---
         this.setupInput();
@@ -377,6 +393,47 @@ export class GameEngine {
         }
     }
 
+    private spawnTraffic(layerMoving: number) {
+        const carGeom = new THREE.BoxGeometry(2, 1.2, 4);
+        const colors = ['#333333', '#555555', '#111111', '#ffffff', '#444444'];
+        
+        for (let i = 0; i < 25; i++) {
+            const lane = Math.floor(Math.random() * 4) - 1.5; // Lanes at -1.5, -0.5, 0.5, 1.5
+            const z = -100 - Math.random() * 1800;
+            const x = lane * 10;
+            const speed = 15 + Math.random() * 15;
+
+            const mesh = new THREE.Group();
+            const bodyMesh = new THREE.Mesh(carGeom, new THREE.MeshStandardMaterial({ color: colors[Math.floor(Math.random() * colors.length)] }));
+            bodyMesh.castShadow = true;
+            mesh.add(bodyMesh);
+
+            // Headlights for traffic
+            const lightGeom = new THREE.PlaneGeometry(0.4, 0.2);
+            const lightMat = new THREE.MeshBasicMaterial({ color: '#ffffaa' });
+            const l1 = new THREE.Mesh(lightGeom, lightMat);
+            l1.position.set(-0.6, 0, -2.01);
+            const l2 = new THREE.Mesh(lightGeom, lightMat);
+            l2.position.set(0.6, 0, -2.01);
+            mesh.add(l1, l2);
+
+            mesh.position.set(x, 0.6, z);
+            this.scene.add(mesh);
+
+            const shape = box.create({ halfExtents: [1, 0.6, 2], convexRadius: 0.05 });
+            const body = rigidBody.create(this.world, {
+                shape,
+                objectLayer: layerMoving,
+                motionType: MotionType.KINEMATIC,
+                position: vec3.fromValues(x, 0.6, z),
+                restitution: 0.1,
+                friction: 0.5,
+            });
+
+            this.traffic.push({ mesh, body, speed, lane });
+        }
+    }
+
     private setupInput() {
         const onKeyDown = (e: KeyboardEvent) => {
             switch (e.code) {
@@ -385,6 +442,7 @@ export class GameEngine {
                 case 'KeyA': case 'ArrowLeft': this.controls.left = true; break;
                 case 'KeyD': case 'ArrowRight': this.controls.right = true; break;
                 case 'Space': this.controls.brake = true; break;
+                case 'ShiftLeft': case 'ShiftRight': this.controls.nitro = true; break;
             }
         };
         const onKeyUp = (e: KeyboardEvent) => {
@@ -394,6 +452,7 @@ export class GameEngine {
                 case 'KeyA': case 'ArrowLeft': this.controls.left = false; break;
                 case 'KeyD': case 'ArrowRight': this.controls.right = false; break;
                 case 'Space': this.controls.brake = false; break;
+                case 'ShiftLeft': case 'ShiftRight': this.controls.nitro = false; break;
             }
         };
         window.addEventListener('keydown', onKeyDown);
@@ -422,9 +481,19 @@ export class GameEngine {
         // Apply controls
         let engineForce = 0;
         let steering = 0;
-        const maxForce = 6000; 
+        let maxForce = 6000; 
         const maxSteer = 0.35;
         const maxBrake = 200;
+
+        // Nitro Logic
+        if (this.controls.nitro && this.state.nitro > 0) {
+            maxForce *= 2.5;
+            this.state.nitro -= delta * 30;
+            // Nitro visual effect (FOV increase)
+            this.camera.fov += 5;
+        } else {
+            this.state.nitro = Math.min(100, this.state.nitro + delta * 5);
+        }
 
         if (this.controls.forward) engineForce += maxForce;
         if (this.controls.backward) engineForce -= maxForce;
@@ -445,8 +514,28 @@ export class GameEngine {
         updateVehicle(this.world, this.vehicle, delta);
         updateWorld(this.world, undefined, delta);
 
-        // Update meshes
         const cb = this.vehicle.chassisBody;
+
+        // Update Traffic
+        for (const t of this.traffic) {
+            const pos = t.body.position;
+            pos[2] -= t.speed * delta;
+            // Loop traffic
+            if (pos[2] < -1950) pos[2] = 50;
+            if (pos[2] > 50) pos[2] = -1950;
+            
+            t.body.position = pos;
+            t.mesh.position.set(pos[0], pos[1], pos[2]);
+
+            // Near Miss Detection
+            const dist = new THREE.Vector3(cb.position[0], cb.position[1], cb.position[2]).distanceTo(new THREE.Vector3(pos[0], pos[1], pos[2]));
+            if (dist < 4.5 && dist > 2.5) {
+                this.state.score += Math.floor(this.state.multiplier * 5);
+                this.state.multiplier = Math.min(10, this.state.multiplier + 0.05);
+            }
+        }
+
+        // Update meshes
         this.chassisMesh.position.set(cb.position[0], cb.position[1], cb.position[2]);
         this.chassisMesh.quaternion.set(cb.quaternion[0], cb.quaternion[1], cb.quaternion[2], cb.quaternion[3]);
 
@@ -461,6 +550,20 @@ export class GameEngine {
         const speed = velocity.length();
         this.state.speed = Math.round(speed * 3.6); 
         
+        // Multiplier Logic
+        if (this.state.speed > 150) {
+            this.state.multiplier = Math.min(10, this.state.multiplier + delta * 0.1);
+            this.state.score += Math.floor(this.state.speed * delta * this.state.multiplier * 0.1);
+        } else {
+            this.state.multiplier = Math.max(1, this.state.multiplier - delta * 0.5);
+        }
+
+        // Distance Progress
+        this.state.distance = Math.min(100, Math.abs(cb.position[2] / 2000) * 100);
+        if (this.state.distance >= 99 && this.state.score > 100) {
+            this.state.gameWon = true;
+        }
+
         if (this.animationFrameId % 5 === 0) {
             this.notifyStateChange();
         }

@@ -12,7 +12,10 @@ export default function App() {
     timeLeft: 60,
     gameOver: false,
     gameWon: false,
-    speed: 0
+    speed: 0,
+    nitro: 100,
+    multiplier: 1,
+    distance: 0
   });
 
   const initGame = () => {
@@ -84,34 +87,92 @@ export default function App() {
               </span>
             </div>
           </motion.div>
+
+          <motion.div 
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="bg-white/80 backdrop-blur-xl border border-white/20 rounded-3xl p-5 flex items-center gap-4 text-black shadow-xl"
+          >
+            <div className="w-12 h-12 rounded-2xl bg-black/5 flex items-center justify-center">
+              <span className="text-xl font-black text-[#E91E63]">x{gameState.multiplier.toFixed(1)}</span>
+            </div>
+            <div className="flex flex-col pr-4">
+              <span className="text-[10px] uppercase tracking-[0.2em] text-black/40 font-bold">Multiplier</span>
+              <span className="text-3xl font-black font-mono leading-none tracking-tighter text-[#E91E63]">COMBO</span>
+            </div>
+          </motion.div>
         </div>
 
-        <motion.div 
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="bg-white/80 backdrop-blur-xl border border-white/20 rounded-3xl p-6 text-black shadow-xl min-w-[240px]"
-        >
-          <div className="flex items-center gap-3 mb-4 border-b border-black/10 pb-4">
-            <div className="w-8 h-8 rounded-full bg-black/5 flex items-center justify-center">
-              <Zap className="w-4 h-4 text-[#E91E63]" />
+        <div className="flex flex-col gap-4 items-end">
+          <motion.div 
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="bg-white/80 backdrop-blur-xl border border-white/20 rounded-3xl p-6 text-black shadow-xl min-w-[240px]"
+          >
+            <div className="flex items-center justify-between mb-4 border-b border-black/10 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-black/5 flex items-center justify-center">
+                  <Zap className="w-4 h-4 text-[#E91E63]" />
+                </div>
+                <span className="font-bold tracking-widest uppercase text-xs text-black/80">Telemetry</span>
+              </div>
+              <span className="text-[10px] font-black text-[#E91E63]">{gameState.speed > 200 ? 'EXTREME' : 'STABLE'}</span>
             </div>
-            <span className="font-bold tracking-widest uppercase text-xs text-black/80">Telemetry</span>
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-[10px] uppercase tracking-[0.2em] text-black/40 font-bold">Speed</span>
-            <div className="flex items-baseline gap-1">
-              <span className="text-4xl font-black font-mono tracking-tighter">{gameState.speed}</span>
-              <span className="text-sm font-bold text-black/40">KM/H</span>
+            
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] uppercase tracking-[0.2em] text-black/40 font-bold">Speed</span>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-4xl font-black font-mono tracking-tighter">{gameState.speed}</span>
+                  <span className="text-sm font-bold text-black/40">KM/H</span>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <div className="flex justify-between items-end">
+                  <span className="text-[10px] uppercase tracking-[0.2em] text-black/40 font-bold">Nitro</span>
+                  <span className="text-[10px] font-black text-black/60">{Math.round(gameState.nitro)}%</span>
+                </div>
+                <div className="h-2 w-full bg-black/5 rounded-full overflow-hidden">
+                  <motion.div 
+                    className="h-full bg-gradient-to-r from-[#E91E63] to-[#FF5722]"
+                    animate={{ width: `${gameState.nitro}%` }}
+                  />
+                </div>
+              </div>
             </div>
-          </div>
-        </motion.div>
+          </motion.div>
+
+          <motion.div 
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.1 }}
+            className="bg-white/80 backdrop-blur-xl border border-white/20 rounded-3xl p-4 text-black shadow-xl w-full"
+          >
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-[10px] uppercase tracking-[0.2em] text-black/40 font-bold">Festival Hub</span>
+              <span className="text-[10px] font-black text-black/60">{Math.round(gameState.distance)}%</span>
+            </div>
+            <div className="h-1.5 w-full bg-black/5 rounded-full overflow-hidden">
+              <motion.div 
+                className="h-full bg-black"
+                animate={{ width: `${gameState.distance}%` }}
+              />
+            </div>
+          </motion.div>
+        </div>
       </div>
 
       {/* Controls Hint - Bottom Left */}
-      <div className="absolute bottom-8 left-8 pointer-events-none opacity-50">
-        <div className="flex gap-2 text-[10px] font-mono tracking-widest uppercase text-black">
-          <span className="px-2 py-1 border border-black/20 rounded">W A S D</span>
-          <span className="px-2 py-1 border border-black/20 rounded">Space</span>
+      <div className="absolute bottom-8 left-8 pointer-events-none">
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2 text-[10px] font-mono tracking-widest uppercase text-black opacity-50">
+            <span className="px-2 py-1 border border-black/20 rounded">W A S D</span>
+            <span className="px-2 py-1 border border-black/20 rounded">Space</span>
+            <span className="px-2 py-1 border border-black/20 rounded bg-black text-white">Shift (Nitro)</span>
+          </div>
+          <span className="text-[10px] font-bold text-[#E91E63] animate-pulse uppercase tracking-widest">Dodge traffic for near-miss bonus!</span>
         </div>
       </div>
 
