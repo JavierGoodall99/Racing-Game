@@ -31,6 +31,10 @@ export type GameState = {
     speed: number;
     nitro: number;
     distance: number;
+    laps: number;
+    lastLapTime: number;
+    bestLapTime: number;
+    currentLapTime: number;
     gameOver: boolean;
 };
 
@@ -55,6 +59,10 @@ export class GameEngine {
         speed: 0,
         nitro: 100,
         distance: 0,
+        laps: 0,
+        lastLapTime: 0,
+        bestLapTime: 0,
+        currentLapTime: 0,
         gameOver: false,
     };
 
@@ -68,6 +76,8 @@ export class GameEngine {
     private shakeAmount: number = 0;
     private targetShake: number = 0;
     private lastAngle: number = 0;
+    private hasPassedCheckpoint: boolean = false;
+    private raceStarted: boolean = false;
 
     constructor(canvas: HTMLCanvasElement, onStateChange: (state: GameState) => void) {
         this.onStateChange = onStateChange;
@@ -697,6 +707,36 @@ export class GameEngine {
         const carAngle = Math.atan2(cb.position[2], cb.position[0]);
         const normalizedAngle = (carAngle + Math.PI) / (2 * Math.PI);
         this.state.distance = normalizedAngle * 100;
+
+        // Checkpoint Detection (Halfway point at angle PI or -PI)
+        if (Math.abs(carAngle) > 3) {
+            this.hasPassedCheckpoint = true;
+        }
+
+        // Lap Timing
+        if (!this.raceStarted && (this.controls.forward || this.controls.backward || this.controls.left || this.controls.right)) {
+            this.raceStarted = true;
+        }
+
+        if (this.raceStarted && !this.state.gameOver) {
+            this.state.currentLapTime += delta;
+        }
+
+        // Lap Detection (Crossing angle 0)
+        const crossedStart = (this.lastAngle < 0 && carAngle >= 0) || (this.lastAngle > 0 && carAngle <= 0);
+        const notAtBack = Math.abs(this.lastAngle - carAngle) < Math.PI;
+        
+        if (crossedStart && notAtBack && this.hasPassedCheckpoint) {
+            this.state.laps++;
+            this.state.lastLapTime = this.state.currentLapTime;
+            
+            if (this.state.bestLapTime === 0 || this.state.lastLapTime < this.state.bestLapTime) {
+                this.state.bestLapTime = this.state.lastLapTime;
+            }
+            
+            this.state.currentLapTime = 0;
+            this.hasPassedCheckpoint = false; // Reset for next lap
+        }
 
         this.lastAngle = carAngle;
 
