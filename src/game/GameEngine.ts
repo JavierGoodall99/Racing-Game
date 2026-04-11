@@ -28,14 +28,10 @@ import {
 } from './VehiclePhysics';
 
 export type GameState = {
-    score: number;
-    timeLeft: number;
-    gameOver: boolean;
-    gameWon: boolean;
     speed: number;
     nitro: number;
-    multiplier: number;
     distance: number;
+    gameOver: boolean;
 };
 
 export class GameEngine {
@@ -46,31 +42,32 @@ export class GameEngine {
     private vehicle!: Vehicle;
     private chassisMesh!: THREE.Group;
     private wheelMeshes: THREE.Group[] = [];
-    private controls = { forward: false, backward: false, left: false, right: false, brake: false, nitro: false };
+    private controls = { forward: false, backward: false, left: false, right: false, brake: false, nitro: false, reset: false };
     private lastTime: number = 0;
     private animationFrameId: number = 0;
     private timerId: any;
     private currentLookAt: THREE.Vector3 = new THREE.Vector3();
+    private flipTimer: number = 0;
     
-    private coins: { mesh: THREE.Group, body: RigidBody, collected: boolean, basePos: THREE.Vector3 }[] = [];
-    private traffic: { mesh: THREE.Group, body: RigidBody, speed: number, lane: number }[] = [];
     private onStateChange: (state: GameState) => void;
     
     public state: GameState = {
-        score: 0,
-        timeLeft: 60,
-        gameOver: false,
-        gameWon: false,
         speed: 0,
         nitro: 100,
-        multiplier: 1,
-        distance: 0
+        distance: 0,
+        gameOver: false,
     };
 
-    private roadLength = 2000;
-    private startZ = 50;
+    private roadRadius = 400;
+    private roadWidth = 40;
     private layerMoving!: number;
     private queryFilter!: any;
+    
+    // Juice
+    private speedLines: THREE.Line[] = [];
+    private shakeAmount: number = 0;
+    private targetShake: number = 0;
+    private lastAngle: number = 0;
 
     constructor(canvas: HTMLCanvasElement, onStateChange: (state: GameState) => void) {
         this.onStateChange = onStateChange;
@@ -130,147 +127,272 @@ export class GameEngine {
         // --- Vehicle Setup ---
         this.createSupercarVehicle(LAYER_MOVING, this.queryFilter);
         
-        // --- Coins Setup ---
-        this.createFestivalRings(LAYER_STATIC);
-
-        // --- Traffic Setup ---
-        this.spawnTraffic(LAYER_MOVING);
-
         // --- Input ---
         this.setupInput();
+
+        // --- Juice ---
+        this.setupJuice();
 
         // --- Start Loop ---
         this.lastTime = performance.now();
         this.animate();
-        
-        // --- Timer ---
-        this.timerId = setInterval(() => {
-            if (!this.state.gameOver && !this.state.gameWon) {
-                this.state.timeLeft -= 1;
-                if (this.state.timeLeft <= 0) {
-                    this.state.timeLeft = 0;
-                    this.state.gameOver = true;
-                }
-                this.notifyStateChange();
-            }
-        }, 1000);
     }
 
     private createScenicTrack(layerStatic: number) {
-        const roadWidth = 40;
-        const roadLength = 2000;
-        const startZ = 50;
-        const endZ = startZ - roadLength;
-
-        // Dry Asphalt Road
-        const roadGeom = new THREE.PlaneGeometry(roadWidth, roadLength);
-        roadGeom.rotateX(-Math.PI / 2);
-        const roadMat = new THREE.MeshStandardMaterial({ 
-            color: '#333333', 
-            roughness: 0.8,
-            metalness: 0.1
-        });
-        const roadMesh = new THREE.Mesh(roadGeom, roadMat);
-        roadMesh.position.set(0, 0, startZ - roadLength / 2);
-        roadMesh.receiveShadow = true;
-        this.scene.add(roadMesh);
-
-        // Grass/Terrain
-        const terrainGeom = new THREE.PlaneGeometry(1000, 2000);
-        terrainGeom.rotateX(-Math.PI / 2);
-        const terrainMat = new THREE.MeshStandardMaterial({ color: '#4CAF50', roughness: 1.0 });
-        const terrainMesh = new THREE.Mesh(terrainGeom, terrainMat);
-        terrainMesh.position.set(0, -0.1, startZ - roadLength / 2);
-        terrainMesh.receiveShadow = true;
-        this.scene.add(terrainMesh);
-
-        // Road Physics
-        const trackShape = box.create({ halfExtents: [500, 1, 1000], convexRadius: 0.05 });
+        const segments = 120;
+        const segmentLength = (2 * Math.PI * this.roadRadius) / segments;
+        
+        // --- Physics Ground Plane (Seamless) ---
+        // Surface at y = -0.1 to allow road meshes to sit at y = 0
+        // Thickened to 100 units to prevent high-speed tunneling
+        const groundShape = box.create({ halfExtents: [2000, 50, 2000], convexRadius: 0 });
         rigidBody.create(this.world, {
-            shape: trackShape,
+            shape: groundShape,
             objectLayer: layerStatic,
             motionType: MotionType.STATIC,
-            position: vec3.fromValues(0, -1, startZ - roadLength / 2),
+            position: vec3.fromValues(0, -50.1, 0), 
             restitution: 0.1,
             friction: 0.9,
         });
 
-        // Road Lines (Yellow)
-        const lineGeom = new THREE.PlaneGeometry(0.5, 4);
+        // Visual Grass Plane
+        const grassGeom = new THREE.PlaneGeometry(3000, 3000);
+        grassGeom.rotateX(-Math.PI / 2);
+        const grassMat = new THREE.MeshStandardMaterial({ color: '#388E3C', roughness: 1 });
+        const grass = new THREE.Mesh(grassGeom, grassMat);
+        grass.position.y = -0.15;
+        grass.receiveShadow = true;
+        this.scene.add(grass);
+
+        const roadMat = new THREE.MeshStandardMaterial({ 
+            color: '#222222', 
+            roughness: 0.7,
+            metalness: 0.2
+        });
+        const roadGeom = new THREE.BoxGeometry(this.roadWidth, 0.2, segmentLength + 1);
+
+        const terrainMat = new THREE.MeshStandardMaterial({ color: '#4CAF50', roughness: 1.0 });
+        const terrainGeom = new THREE.BoxGeometry(400, 0.1, segmentLength + 1);
+
+        const lineGeom = new THREE.PlaneGeometry(0.6, 4);
         lineGeom.rotateX(-Math.PI / 2);
         const lineMat = new THREE.MeshBasicMaterial({ color: '#FFD700' });
-        for (let z = startZ; z > endZ; z -= 10) {
-            const line = new THREE.Mesh(lineGeom, lineMat);
-            line.position.set(0, 0.01, z);
-            this.scene.add(line);
+
+        const treeTrunkGeom = new THREE.CylinderGeometry(0.6, 0.8, 5);
+        const treeTrunkMat = new THREE.MeshStandardMaterial({ color: '#4E342E' });
+        const treeTopGeom = new THREE.ConeGeometry(4, 10, 8);
+        const treeTopMat = new THREE.MeshStandardMaterial({ color: '#1B5E20' });
+        
+        const roundTreeTopGeom = new THREE.SphereGeometry(5, 8, 8);
+        const roundTreeTopMat = new THREE.MeshStandardMaterial({ color: '#2E7D32' });
+
+        const bannerGeom = new THREE.BoxGeometry(0.3, 12, 5);
+        const bannerMat = new THREE.MeshStandardMaterial({ color: '#E91E63' });
+
+        // Barrier Physics - Using MANY segments for barriers to follow the curve perfectly
+        const barrierSegments = 360; 
+        const barrierSegmentLength = (2 * Math.PI * this.roadRadius) / barrierSegments;
+        const barrierHeight = 10;
+        const barrierThickness = 3;
+        const barrierGeom = new THREE.BoxGeometry(barrierThickness, barrierHeight, barrierSegmentLength + 1); 
+        const barrierMat = new THREE.MeshStandardMaterial({ color: '#ffffff', transparent: true, opacity: 0.08 });
+        // Large convexRadius (1.0) makes the edges extremely round, preventing any catching
+        const barrierShape = box.create({ halfExtents: [barrierThickness / 2, barrierHeight / 2, (barrierSegmentLength + 1) / 2], convexRadius: 1.0 });
+
+        // Festival Assets
+        const stageGeom = new THREE.BoxGeometry(100, 30, 50);
+        const stageMat = new THREE.MeshStandardMaterial({ color: '#050505', metalness: 1, roughness: 0.1 });
+        const screenMat = new THREE.MeshBasicMaterial({ color: '#E91E63' });
+
+        const grandstandGeom = new THREE.BoxGeometry(60, 15, 30);
+        const grandstandMat = new THREE.MeshStandardMaterial({ color: '#333333' });
+
+        // Create Barriers separately with fewer segments
+        for (let i = 0; i < barrierSegments; i++) {
+            const angle = (i / barrierSegments) * Math.PI * 2;
+            const rotationY = -angle;
+
+            for (const side of [-1, 1]) {
+                const bDist = (this.roadWidth / 2 + 6) * side;
+                const bx = Math.cos(angle) * (this.roadRadius + bDist);
+                const bz = Math.sin(angle) * (this.roadRadius + bDist);
+
+                const bMesh = new THREE.Mesh(barrierGeom, barrierMat);
+                bMesh.position.set(bx, barrierHeight / 2 - 0.1, bz);
+                bMesh.rotation.y = rotationY;
+                this.scene.add(bMesh);
+
+                rigidBody.create(this.world, {
+                    shape: barrierShape,
+                    objectLayer: layerStatic,
+                    motionType: MotionType.STATIC,
+                    position: vec3.fromValues(bx, barrierHeight / 2 - 0.1, bz),
+                    quaternion: quat.fromEuler(quat.create(), [0, (rotationY * 180) / Math.PI, 0]),
+                    restitution: 0, // Zero restitution to prevent bouncing
+                    friction: 0.05, // Very low friction to slide along walls
+                });
+            }
         }
 
-        // Festival Banners & Trees
-        const bannerGeom = new THREE.BoxGeometry(0.2, 10, 4);
-        const bannerMat = new THREE.MeshStandardMaterial({ color: '#E91E63' }); // Pink Festival Color
-        
-        const treeTrunkGeom = new THREE.CylinderGeometry(0.5, 0.7, 4);
-        const treeTrunkMat = new THREE.MeshStandardMaterial({ color: '#5D4037' });
-        const treeTopGeom = new THREE.ConeGeometry(3, 8, 8);
-        const treeTopMat = new THREE.MeshStandardMaterial({ color: '#2E7D32' });
+        for (let i = 0; i < segments; i++) {
+            const angle = (i / segments) * Math.PI * 2;
+            const x = Math.cos(angle) * this.roadRadius;
+            const z = Math.sin(angle) * this.roadRadius;
+            const rotationY = -angle;
 
-        for (let z = startZ; z > endZ; z -= 40) {
-            // Left Tree
-            const trunkL = new THREE.Mesh(treeTrunkGeom, treeTrunkMat);
-            trunkL.position.set(-roadWidth / 2 - 5, 2, z);
-            trunkL.castShadow = true;
-            this.scene.add(trunkL);
-            const topL = new THREE.Mesh(treeTopGeom, treeTopMat);
-            topL.position.set(-roadWidth / 2 - 5, 8, z);
-            topL.castShadow = true;
-            this.scene.add(topL);
+            // Visual Road Segment
+            const roadMesh = new THREE.Mesh(roadGeom, roadMat);
+            roadMesh.position.set(x, 0, z); 
+            roadMesh.rotation.y = rotationY;
+            roadMesh.receiveShadow = true;
+            this.scene.add(roadMesh);
 
-            // Right Tree
-            const trunkR = new THREE.Mesh(treeTrunkGeom, treeTrunkMat);
-            trunkR.position.set(roadWidth / 2 + 5, 2, z + 20);
-            trunkR.castShadow = true;
-            this.scene.add(trunkR);
-            const topR = new THREE.Mesh(treeTopGeom, treeTopMat);
-            topR.position.set(roadWidth / 2 + 5, 8, z + 20);
-            topR.castShadow = true;
-            this.scene.add(topR);
+            // Visual Terrain
+            const terrainMesh = new THREE.Mesh(terrainGeom, terrainMat);
+            terrainMesh.position.set(x, -0.05, z);
+            terrainMesh.rotation.y = rotationY;
+            terrainMesh.receiveShadow = true;
+            this.scene.add(terrainMesh);
 
-            // Festival Banners every 120 units
-            if (z % 120 === 0) {
-                const banner = new THREE.Mesh(bannerGeom, bannerMat);
-                banner.position.set(-roadWidth / 2 - 1, 5, z);
-                this.scene.add(banner);
-                
-                const bannerR = new THREE.Mesh(bannerGeom, bannerMat);
-                bannerR.position.set(roadWidth / 2 + 1, 5, z);
-                this.scene.add(bannerR);
+            // Road Lines
+            if (i % 2 === 0) {
+                const line = new THREE.Mesh(lineGeom, lineMat);
+                line.position.set(x, 0.11, z);
+                line.rotation.y = rotationY;
+                this.scene.add(line);
             }
+
+            // Environmental Character
+            if (i === 0) {
+                // --- Start/Finish Line Arch ---
+                const archGroup = new THREE.Group();
+                
+                // Pillars
+                const pillarGeom = new THREE.BoxGeometry(4, 25, 4);
+                const pillarMat = new THREE.MeshStandardMaterial({ color: '#222222', metalness: 0.8, roughness: 0.2 });
+                
+                const leftPillar = new THREE.Mesh(pillarGeom, pillarMat);
+                leftPillar.position.set(-(this.roadWidth / 2 + 2), 12.5, 0);
+                archGroup.add(leftPillar);
+                
+                const rightPillar = new THREE.Mesh(pillarGeom, pillarMat);
+                rightPillar.position.set(this.roadWidth / 2 + 2, 12.5, 0);
+                archGroup.add(rightPillar);
+                
+                // Crossbar
+                const crossbarGeom = new THREE.BoxGeometry(this.roadWidth + 8, 6, 4);
+                const crossbar = new THREE.Mesh(crossbarGeom, pillarMat);
+                crossbar.position.set(0, 22, 0);
+                archGroup.add(crossbar);
+                
+                // Banner
+                const bannerArchGeom = new THREE.PlaneGeometry(this.roadWidth + 4, 4);
+                const bannerArchMat = new THREE.MeshBasicMaterial({ color: '#E91E63', side: THREE.DoubleSide });
+                const bannerArch = new THREE.Mesh(bannerArchGeom, bannerArchMat);
+                bannerArch.position.set(0, 22, 2.1);
+                archGroup.add(bannerArch);
+                
+                // "START / FINISH" Text (Simulated with boxes for now)
+                const textMat = new THREE.MeshBasicMaterial({ color: '#FFFFFF' });
+                const textGeom = new THREE.BoxGeometry(this.roadWidth * 0.6, 1.5, 0.1);
+                const textMesh = new THREE.Mesh(textGeom, textMat);
+                textMesh.position.set(0, 22, 2.2);
+                archGroup.add(textMesh);
+
+                archGroup.position.set(x, 0, z);
+                archGroup.rotation.y = rotationY;
+                this.scene.add(archGroup);
+
+                // Stage and Screen
+                const stage = new THREE.Mesh(stageGeom, stageMat);
+                const stageX = Math.cos(angle) * (this.roadRadius + 100);
+                const stageZ = Math.sin(angle) * (this.roadRadius + 100);
+                stage.position.set(stageX, 15, stageZ);
+                stage.rotation.y = rotationY;
+                this.scene.add(stage);
+
+                const screen = new THREE.Mesh(new THREE.PlaneGeometry(80, 25), screenMat);
+                screen.position.set(stageX, 18, stageZ - 25.1);
+                screen.rotation.y = rotationY;
+                this.scene.add(screen);
+            }
+
+            if (i % 12 === 0 && i !== 0) {
+                const stand = new THREE.Mesh(grandstandGeom, grandstandMat);
+                const side = (i % 24 === 0) ? 1 : -1;
+                const dist = (this.roadWidth / 2 + 45) * side;
+                const sx = Math.cos(angle) * (this.roadRadius + dist);
+                const sz = Math.sin(angle) * (this.roadRadius + dist);
+                stand.position.set(sx, 7.5, sz);
+                stand.rotation.y = rotationY;
+                this.scene.add(stand);
+            }
+
+            if (i % 3 === 0) {
+                const side = (i % 6 === 0) ? 1 : -1;
+                const dist = (this.roadWidth / 2 + 25 + Math.random() * 40) * side;
+                const tx = Math.cos(angle) * (this.roadRadius + dist);
+                const tz = Math.sin(angle) * (this.roadRadius + dist);
+
+                const trunk = new THREE.Mesh(treeTrunkGeom, treeTrunkMat);
+                trunk.position.set(tx, 2.5, tz);
+                this.scene.add(trunk);
+                
+                const isRound = Math.random() > 0.5;
+                const top = new THREE.Mesh(isRound ? roundTreeTopGeom : treeTopGeom, isRound ? roundTreeTopMat : treeTopMat);
+                top.position.set(tx, isRound ? 7.5 : 10, tz);
+                this.scene.add(top);
+
+                if (i % 9 === 0) {
+                    const bx = Math.cos(angle) * (this.roadRadius + (this.roadWidth / 2 + 4) * side);
+                    const bz = Math.sin(angle) * (this.roadRadius + (this.roadWidth / 2 + 4) * side);
+                    const banner = new THREE.Mesh(bannerGeom, bannerMat);
+                    banner.position.set(bx, 6, bz);
+                    banner.rotation.y = rotationY;
+                    this.scene.add(banner);
+                }
+            }
+        }
+
+        // Hot Air Balloons
+        const balloonGeom = new THREE.SphereGeometry(15, 16, 16);
+        const balloonColors = ['#E91E63', '#FFC107', '#2196F3', '#4CAF50', '#9C27B0', '#FF5722'];
+        for (let i = 0; i < 15; i++) {
+            const balloon = new THREE.Mesh(balloonGeom, new THREE.MeshStandardMaterial({ color: balloonColors[i % 6] }));
+            const angle = Math.random() * Math.PI * 2;
+            const dist = this.roadRadius + 300 + Math.random() * 400;
+            balloon.position.set(
+                Math.cos(angle) * dist,
+                80 + Math.random() * 100,
+                Math.sin(angle) * dist
+            );
+            this.scene.add(balloon);
         }
     }
 
     private createSupercarVehicle(layerMoving: number, queryFilter: any) {
         const chassisHalfWidth = 1.1;
-        const chassisHalfHeight = 0.3;
+        const chassisHalfHeight = 0.4;
         const chassisHalfLength = 2.5;
 
-        const chassisShape = box.create({ halfExtents: [chassisHalfWidth, chassisHalfHeight, chassisHalfLength], convexRadius: 0.05 });
+        const chassisShape = box.create({ halfExtents: [chassisHalfWidth, chassisHalfHeight, chassisHalfLength], convexRadius: 0.2 }); // More rounded edges
         const chassisBody = rigidBody.create(this.world, {
             shape: chassisShape,
             objectLayer: layerMoving,
             motionType: MotionType.DYNAMIC,
-            position: vec3.fromValues(0, 2, 0),
-            quaternion: quat.create(),
-            mass: 1500,
-            restitution: 0.1,
+            position: vec3.fromValues(this.roadRadius, 3, 0),
+            quaternion: quat.fromEuler(quat.create(), [0, 0, 0]),
+            mass: 1800, // Heavier for better stability at high speeds
+            restitution: 0.05,
             friction: 0.5,
         });
 
         this.vehicle = createVehicle(chassisBody, queryFilter);
 
-        const wheelRadius = 0.4;
-        const wheelWidth = 0.35;
-        const vehicleWidth = 2.3;
-        const vehicleHeight = -0.1;
+        const wheelRadius = 0.45;
+        const wheelWidth = 0.4;
+        const vehicleWidth = 2.6; // Wider for more stability
+        const vehicleHeight = 0.2; // Slightly higher connection point
         const vehicleFront = -1.5;
         const vehicleBack = 1.5;
 
@@ -278,19 +400,19 @@ export class GameEngine {
             radius: wheelRadius,
             directionLocal: vec3.fromValues(0, -1, 0),
             axleLocal: vec3.fromValues(1, 0, 0),
-            suspensionFrequency: 2.2,
-            suspensionDamping: 0.8, 
-            suspensionRestLength: 0.3,
-            maxSuspensionForce: 250000,
-            maxSuspensionTravel: 0.3,
+            suspensionFrequency: 3.0, // Stiffer suspension to prevent rolling
+            suspensionDamping: 1.2, 
+            suspensionRestLength: 0.4, // Shorter suspension for lower COM
+            maxSuspensionForce: 400000,
+            maxSuspensionTravel: 0.4,
             suspensionForcePoint: null,
-            sideFrictionStiffness: 2.8,
-            frictionSlip: 3.5, 
+            sideFrictionStiffness: 3.0,
+            frictionSlip: 4.0, 
             rollInfluence: 0.01,
-            customSlidingRotationalSpeed: -30,
+            customSlidingRotationalSpeed: -40,
             useCustomSlidingRotationalSpeed: true,
-            forwardAcceleration: 1.8,
-            sideAcceleration: 1.8,
+            forwardAcceleration: 2.0,
+            sideAcceleration: 2.0,
         };
 
         addWheel(this.vehicle, { ...commonWheelOptions, chassisConnectionPointLocal: vec3.fromValues(-vehicleWidth * 0.5, vehicleHeight, vehicleFront) });
@@ -357,80 +479,69 @@ export class GameEngine {
         }
     }
 
-    private createFestivalRings(layerStatic: number) {
-        const ringGeom = new THREE.TorusGeometry(3, 0.3, 16, 32);
-        const ringMat = new THREE.MeshStandardMaterial({ 
-            color: '#E91E63', 
-            emissive: '#E91E63',
-            emissiveIntensity: 0.5
-        });
-        
-        const ringPositions = [
-            [0, 3, -50],
-            [-10, 3, -180],
-            [10, 3, -320],
-            [0, 3, -480],
-            [15, 3, -620],
-            [-15, 3, -780],
-            [0, 3, -920],
-            [-10, 3, -1080],
-            [10, 3, -1220],
-            [0, 3, -1400], 
-        ];
-
-        for (const pos of ringPositions) {
-            const group = new THREE.Group();
-            group.position.set(pos[0], pos[1], pos[2]);
-            const mesh = new THREE.Mesh(ringGeom, ringMat);
-            group.add(mesh);
-            this.scene.add(group);
-            this.coins.push({ 
-                mesh: group, 
-                body: null as any, 
-                collected: false,
-                basePos: new THREE.Vector3(pos[0], pos[1], pos[2])
-            });
+    private setupJuice() {
+        const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 });
+        for (let i = 0; i < 40; i++) {
+            const points = [new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -5)];
+            const geom = new THREE.BufferGeometry().setFromPoints(points);
+            const line = new THREE.Line(geom, lineMat.clone());
+            line.visible = false;
+            this.scene.add(line);
+            this.speedLines.push(line);
         }
     }
 
-    private spawnTraffic(layerMoving: number) {
-        const carGeom = new THREE.BoxGeometry(2, 1.2, 4);
-        const colors = ['#333333', '#555555', '#111111', '#ffffff', '#444444'];
+    private updateJuice(delta: number, speed: number) {
+        // Speed Lines
+        const speedThreshold = 180;
+        const maxOpacity = 0.6;
+        const opacity = Math.max(0, Math.min(maxOpacity, (speed - speedThreshold) / 100));
+
+        const cameraForward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
+        const cameraRight = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
+        const cameraUp = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
+
+        this.speedLines.forEach((line, i) => {
+            if (speed > speedThreshold) {
+                if (!line.visible) {
+                    line.visible = true;
+                    const spreadX = (Math.random() - 0.5) * 40;
+                    const spreadY = (Math.random() - 0.5) * 20;
+                    const spreadZ = -50 - Math.random() * 50;
+                    
+                    line.position.copy(this.camera.position)
+                        .add(cameraRight.clone().multiplyScalar(spreadX))
+                        .add(cameraUp.clone().multiplyScalar(spreadY))
+                        .add(cameraForward.clone().multiplyScalar(spreadZ));
+                    
+                    line.quaternion.copy(this.camera.quaternion);
+                }
+                
+                // Move line towards camera
+                const toCamera = new THREE.Vector3().subVectors(this.camera.position, line.position);
+                const dist = toCamera.length();
+                line.position.add(cameraForward.clone().multiplyScalar(-speed * delta * 0.5));
+                (line.material as THREE.LineBasicMaterial).opacity = opacity;
+
+                if (dist < 10 || dist > 150) {
+                    line.visible = false; // Reset next frame
+                }
+            } else {
+                line.visible = false;
+            }
+        });
+
+        // Shake
+        this.shakeAmount += (this.targetShake - this.shakeAmount) * 0.1;
+        this.targetShake *= 0.9; // Decay
         
-        for (let i = 0; i < 25; i++) {
-            const lane = Math.floor(Math.random() * 4) - 1.5; // Lanes at -1.5, -0.5, 0.5, 1.5
-            const z = -100 - Math.random() * 1800;
-            const x = lane * 10;
-            const speed = 15 + Math.random() * 15;
+        if (speed > 250) {
+            this.shakeAmount += (speed - 250) * 0.0001;
+        }
 
-            const mesh = new THREE.Group();
-            const bodyMesh = new THREE.Mesh(carGeom, new THREE.MeshStandardMaterial({ color: colors[Math.floor(Math.random() * colors.length)] }));
-            bodyMesh.castShadow = true;
-            mesh.add(bodyMesh);
-
-            // Headlights for traffic
-            const lightGeom = new THREE.PlaneGeometry(0.4, 0.2);
-            const lightMat = new THREE.MeshBasicMaterial({ color: '#ffffaa' });
-            const l1 = new THREE.Mesh(lightGeom, lightMat);
-            l1.position.set(-0.6, 0, -2.01);
-            const l2 = new THREE.Mesh(lightGeom, lightMat);
-            l2.position.set(0.6, 0, -2.01);
-            mesh.add(l1, l2);
-
-            mesh.position.set(x, 0.6, z);
-            this.scene.add(mesh);
-
-            const shape = box.create({ halfExtents: [1, 0.6, 2], convexRadius: 0.05 });
-            const body = rigidBody.create(this.world, {
-                shape,
-                objectLayer: layerMoving,
-                motionType: MotionType.KINEMATIC,
-                position: vec3.fromValues(x, 0.6, z),
-                restitution: 0.1,
-                friction: 0.5,
-            });
-
-            this.traffic.push({ mesh, body, speed, lane });
+        if (this.shakeAmount > 0.01) {
+            this.camera.position.x += (Math.random() - 0.5) * this.shakeAmount;
+            this.camera.position.y += (Math.random() - 0.5) * this.shakeAmount;
         }
     }
 
@@ -443,6 +554,7 @@ export class GameEngine {
                 case 'KeyD': case 'ArrowRight': this.controls.right = true; break;
                 case 'Space': this.controls.brake = true; break;
                 case 'ShiftLeft': case 'ShiftRight': this.controls.nitro = true; break;
+                case 'KeyR': this.resetCar(); break;
             }
         };
         const onKeyUp = (e: KeyboardEvent) => {
@@ -469,6 +581,51 @@ export class GameEngine {
         this.renderer.setSize(width, height);
     }
 
+    private resetCar() {
+        const cb = this.vehicle.chassisBody;
+        
+        // Find current position on the track
+        const angle = Math.atan2(cb.position[2], cb.position[0]);
+        const x = Math.cos(angle) * this.roadRadius;
+        const z = Math.sin(angle) * this.roadRadius;
+        const rotationY = -angle;
+
+        // Reset position and rotation
+        cb.position[0] = x;
+        cb.position[1] = 2; // Slightly above ground
+        cb.position[2] = z;
+        
+        const q = quat.fromEuler(quat.create(), [0, (rotationY * 180) / Math.PI, 0]);
+        cb.quaternion[0] = q[0];
+        cb.quaternion[1] = q[1];
+        cb.quaternion[2] = q[2];
+        cb.quaternion[3] = q[3];
+
+        // Reset velocities
+        vec3.zero(cb.motionProperties.linearVelocity);
+        vec3.zero(cb.motionProperties.angularVelocity);
+        
+        this.flipTimer = 0;
+        this.shakeAmount = 0.5; // Visual feedback
+    }
+
+    private updateResetLogic(delta: number) {
+        const cb = this.vehicle.chassisBody;
+        
+        // Check if car is upside down (Up vector dot World Up < 0)
+        const up = vec3.fromValues(0, 1, 0);
+        vec3.transformQuat(up, up, cb.quaternion);
+        
+        if (up[1] < 0.2) { // Car is tilted or upside down
+            this.flipTimer += delta;
+            if (this.flipTimer > 3.0) { // Auto-reset after 3 seconds
+                this.resetCar();
+            }
+        } else {
+            this.flipTimer = 0;
+        }
+    }
+
     private animate = () => {
         this.animationFrameId = requestAnimationFrame(this.animate);
 
@@ -476,7 +633,7 @@ export class GameEngine {
         const delta = Math.min((now - this.lastTime) / 1000, 1 / 30);
         this.lastTime = now;
 
-        if (this.state.gameOver || this.state.gameWon) return;
+        if (this.state.gameOver) return;
 
         // Apply controls
         let engineForce = 0;
@@ -486,13 +643,13 @@ export class GameEngine {
         const maxBrake = 200;
 
         // Nitro Logic
-        if (this.controls.nitro && this.state.nitro > 0) {
+        let nitroActive = false;
+        if (this.controls.nitro && this.state.nitro > 5) { // Minimum 5% to start nitro
             maxForce *= 2.5;
-            this.state.nitro -= delta * 30;
-            // Nitro visual effect (FOV increase)
-            this.camera.fov += 5;
+            this.state.nitro = Math.max(0, this.state.nitro - delta * 40);
+            nitroActive = true;
         } else {
-            this.state.nitro = Math.min(100, this.state.nitro + delta * 5);
+            this.state.nitro = Math.min(100, this.state.nitro + delta * 8);
         }
 
         if (this.controls.forward) engineForce += maxForce;
@@ -514,26 +671,12 @@ export class GameEngine {
         updateVehicle(this.world, this.vehicle, delta);
         updateWorld(this.world, undefined, delta);
 
+        this.updateResetLogic(delta);
+
         const cb = this.vehicle.chassisBody;
-
-        // Update Traffic
-        for (const t of this.traffic) {
-            const pos = t.body.position;
-            pos[2] -= t.speed * delta;
-            // Loop traffic
-            if (pos[2] < -1950) pos[2] = 50;
-            if (pos[2] > 50) pos[2] = -1950;
-            
-            t.body.position = pos;
-            t.mesh.position.set(pos[0], pos[1], pos[2]);
-
-            // Near Miss Detection
-            const dist = new THREE.Vector3(cb.position[0], cb.position[1], cb.position[2]).distanceTo(new THREE.Vector3(pos[0], pos[1], pos[2]));
-            if (dist < 4.5 && dist > 2.5) {
-                this.state.score += Math.floor(this.state.multiplier * 5);
-                this.state.multiplier = Math.min(10, this.state.multiplier + 0.05);
-            }
-        }
+        
+        // Juice
+        this.updateJuice(delta, this.state.speed);
 
         // Update meshes
         this.chassisMesh.position.set(cb.position[0], cb.position[1], cb.position[2]);
@@ -550,25 +693,21 @@ export class GameEngine {
         const speed = velocity.length();
         this.state.speed = Math.round(speed * 3.6); 
         
-        // Multiplier Logic
-        if (this.state.speed > 150) {
-            this.state.multiplier = Math.min(10, this.state.multiplier + delta * 0.1);
-            this.state.score += Math.floor(this.state.speed * delta * this.state.multiplier * 0.1);
-        } else {
-            this.state.multiplier = Math.max(1, this.state.multiplier - delta * 0.5);
-        }
+        // Distance Progress (Angle-based)
+        const carAngle = Math.atan2(cb.position[2], cb.position[0]);
+        const normalizedAngle = (carAngle + Math.PI) / (2 * Math.PI);
+        this.state.distance = normalizedAngle * 100;
 
-        // Distance Progress
-        this.state.distance = Math.min(100, Math.abs(cb.position[2] / 2000) * 100);
-        if (this.state.distance >= 99 && this.state.score > 100) {
-            this.state.gameWon = true;
-        }
+        this.lastAngle = carAngle;
 
         if (this.animationFrameId % 5 === 0) {
             this.notifyStateChange();
         }
 
-        const targetFov = 70 + (speed * 0.6);
+        // Dynamic FOV based on speed and nitro
+        let targetFov = 70 + (speed * 0.5);
+        if (nitroActive) targetFov += 15;
+        
         this.camera.fov += (targetFov - this.camera.fov) * 0.1;
         this.camera.updateProjectionMatrix();
 
@@ -584,28 +723,6 @@ export class GameEngine {
         this.camera.position.lerp(idealOffset, 1.0 - Math.pow(0.0001, delta));
         this.currentLookAt.lerp(idealLookAt, 1.0 - Math.pow(0.0001, delta));
         this.camera.lookAt(this.currentLookAt);
-
-        const carPos = new THREE.Vector3(cb.position[0], cb.position[1], cb.position[2]);
-        let coinsCollectedThisFrame = false;
-        
-        for (const coin of this.coins) {
-            if (!coin.collected) {
-                coin.mesh.rotation.y += delta * 3;
-                if (carPos.distanceTo(coin.basePos) < 6.0) {
-                    coin.collected = true;
-                    coin.mesh.visible = false;
-                    this.state.score += 10;
-                    coinsCollectedThisFrame = true;
-                }
-            }
-        }
-
-        if (coinsCollectedThisFrame) {
-            if (this.coins.every(c => c.collected)) {
-                this.state.gameWon = true;
-            }
-            this.notifyStateChange();
-        }
 
         this.renderer.render(this.scene, this.camera);
     };
