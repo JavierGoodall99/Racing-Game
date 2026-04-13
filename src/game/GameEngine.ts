@@ -35,7 +35,9 @@ export type GameState = {
     lastLapTime: number;
     bestLapTime: number;
     currentLapTime: number;
+    carPosition: { x: number; z: number };
     gameOver: boolean;
+    isPaused: boolean;
 };
 
 export class GameEngine {
@@ -63,7 +65,9 @@ export class GameEngine {
         lastLapTime: 0,
         bestLapTime: 0,
         currentLapTime: 0,
+        carPosition: { x: 0, z: 0 },
         gameOver: false,
+        isPaused: false,
     };
 
     private roadRadius = 400;
@@ -78,9 +82,13 @@ export class GameEngine {
     private lastAngle: number = 0;
     private hasPassedCheckpoint: boolean = false;
     private raceStarted: boolean = false;
+    private carColor: string;
+    private trackId: string;
 
-    constructor(canvas: HTMLCanvasElement, onStateChange: (state: GameState) => void) {
+    constructor(canvas: HTMLCanvasElement, onStateChange: (state: GameState) => void, carColor: string = '#FF5722', trackId: string = 'circle') {
         this.onStateChange = onStateChange;
+        this.carColor = carColor;
+        this.trackId = trackId;
         
         // --- Three.js Setup (Forza Horizon Vibe) ---
         this.scene = new THREE.Scene();
@@ -148,9 +156,20 @@ export class GameEngine {
         this.animate();
     }
 
+    private getTrackPoint(angle: number): { x: number, z: number, dx: number, dz: number } {
+        const a = this.trackId === 'oval' ? 800 : 400;
+        const b = 400;
+        const x = Math.cos(angle) * a;
+        const z = Math.sin(angle) * b;
+        const dx = -a * Math.sin(angle);
+        const dz = b * Math.cos(angle);
+        return { x, z, dx, dz };
+    }
+
     private createScenicTrack(layerStatic: number) {
-        const segments = 120;
-        const segmentLength = (2 * Math.PI * this.roadRadius) / segments;
+        const segments = this.trackId === 'oval' ? 240 : 120;
+        const maxRadius = this.trackId === 'oval' ? 800 : 400;
+        const segmentLength = (2 * Math.PI * maxRadius) / segments + 2; // +2 for overlap
         
         // --- Physics Ground Plane (Seamless) ---
         // Surface at y = -0.1 to allow road meshes to sit at y = 0
@@ -166,27 +185,27 @@ export class GameEngine {
         });
 
         // Visual Grass Plane
-        const grassGeom = new THREE.PlaneGeometry(3000, 3000);
+        const grassGeom = new THREE.PlaneGeometry(4000, 4000);
         grassGeom.rotateX(-Math.PI / 2);
-        const grassMat = new THREE.MeshStandardMaterial({ color: '#388E3C', roughness: 1 });
+        const grassMat = new THREE.MeshStandardMaterial({ color: this.trackId === 'oval' ? '#0a0a1a' : '#388E3C', roughness: 1 });
         const grass = new THREE.Mesh(grassGeom, grassMat);
         grass.position.y = -0.15;
         grass.receiveShadow = true;
         this.scene.add(grass);
 
         const roadMat = new THREE.MeshStandardMaterial({ 
-            color: '#222222', 
+            color: this.trackId === 'oval' ? '#111111' : '#222222', 
             roughness: 0.7,
             metalness: 0.2
         });
-        const roadGeom = new THREE.BoxGeometry(this.roadWidth, 0.2, segmentLength + 1);
+        const roadGeom = new THREE.BoxGeometry(this.roadWidth, 0.2, segmentLength);
 
-        const terrainMat = new THREE.MeshStandardMaterial({ color: '#4CAF50', roughness: 1.0 });
-        const terrainGeom = new THREE.BoxGeometry(400, 0.1, segmentLength + 1);
+        const terrainMat = new THREE.MeshStandardMaterial({ color: this.trackId === 'oval' ? '#1a1a2e' : '#4CAF50', roughness: 1.0 });
+        const terrainGeom = new THREE.BoxGeometry(400, 0.1, segmentLength);
 
         const lineGeom = new THREE.PlaneGeometry(0.6, 4);
         lineGeom.rotateX(-Math.PI / 2);
-        const lineMat = new THREE.MeshBasicMaterial({ color: '#FFD700' });
+        const lineMat = new THREE.MeshBasicMaterial({ color: this.trackId === 'oval' ? '#00E5FF' : '#FFD700' });
 
         const treeTrunkGeom = new THREE.CylinderGeometry(0.6, 0.8, 5);
         const treeTrunkMat = new THREE.MeshStandardMaterial({ color: '#4E342E' });
@@ -200,14 +219,14 @@ export class GameEngine {
         const bannerMat = new THREE.MeshStandardMaterial({ color: '#E91E63' });
 
         // Barrier Physics - Using MANY segments for barriers to follow the curve perfectly
-        const barrierSegments = 360; 
-        const barrierSegmentLength = (2 * Math.PI * this.roadRadius) / barrierSegments;
+        const barrierSegments = this.trackId === 'oval' ? 480 : 360; 
+        const barrierSegmentLength = (2 * Math.PI * maxRadius) / barrierSegments + 1;
         const barrierHeight = 10;
         const barrierThickness = 3;
-        const barrierGeom = new THREE.BoxGeometry(barrierThickness, barrierHeight, barrierSegmentLength + 1); 
-        const barrierMat = new THREE.MeshStandardMaterial({ color: '#ffffff', transparent: true, opacity: 0.08 });
+        const barrierGeom = new THREE.BoxGeometry(barrierThickness, barrierHeight, barrierSegmentLength); 
+        const barrierMat = new THREE.MeshStandardMaterial({ color: this.trackId === 'oval' ? '#00E5FF' : '#ffffff', transparent: true, opacity: this.trackId === 'oval' ? 0.2 : 0.08 });
         // Large convexRadius (1.0) makes the edges extremely round, preventing any catching
-        const barrierShape = box.create({ halfExtents: [barrierThickness / 2, barrierHeight / 2, (barrierSegmentLength + 1) / 2], convexRadius: 1.0 });
+        const barrierShape = box.create({ halfExtents: [barrierThickness / 2, barrierHeight / 2, barrierSegmentLength / 2], convexRadius: 1.0 });
 
         // Festival Assets
         const stageGeom = new THREE.BoxGeometry(100, 30, 50);
@@ -220,12 +239,17 @@ export class GameEngine {
         // Create Barriers separately with fewer segments
         for (let i = 0; i < barrierSegments; i++) {
             const angle = (i / barrierSegments) * Math.PI * 2;
-            const rotationY = -angle;
+            const { x, z, dx, dz } = this.getTrackPoint(angle);
+            const rotationY = Math.atan2(dx, dz);
+            
+            const len = Math.sqrt(dx*dx + dz*dz);
+            const nx = dz / len;
+            const nz = -dx / len;
 
             for (const side of [-1, 1]) {
                 const bDist = (this.roadWidth / 2 + 6) * side;
-                const bx = Math.cos(angle) * (this.roadRadius + bDist);
-                const bz = Math.sin(angle) * (this.roadRadius + bDist);
+                const bx = x + nx * bDist;
+                const bz = z + nz * bDist;
 
                 const bMesh = new THREE.Mesh(barrierGeom, barrierMat);
                 bMesh.position.set(bx, barrierHeight / 2 - 0.1, bz);
@@ -246,9 +270,12 @@ export class GameEngine {
 
         for (let i = 0; i < segments; i++) {
             const angle = (i / segments) * Math.PI * 2;
-            const x = Math.cos(angle) * this.roadRadius;
-            const z = Math.sin(angle) * this.roadRadius;
-            const rotationY = -angle;
+            const { x, z, dx, dz } = this.getTrackPoint(angle);
+            const rotationY = Math.atan2(dx, dz);
+            
+            const len = Math.sqrt(dx*dx + dz*dz);
+            const nx = dz / len;
+            const nz = -dx / len;
 
             // Visual Road Segment
             const roadMesh = new THREE.Mesh(roadGeom, roadMat);
@@ -315,14 +342,14 @@ export class GameEngine {
 
                 // Stage and Screen
                 const stage = new THREE.Mesh(stageGeom, stageMat);
-                const stageX = Math.cos(angle) * (this.roadRadius + 100);
-                const stageZ = Math.sin(angle) * (this.roadRadius + 100);
+                const stageX = x + nx * 100;
+                const stageZ = z + nz * 100;
                 stage.position.set(stageX, 15, stageZ);
                 stage.rotation.y = rotationY;
                 this.scene.add(stage);
 
                 const screen = new THREE.Mesh(new THREE.PlaneGeometry(80, 25), screenMat);
-                screen.position.set(stageX, 18, stageZ - 25.1);
+                screen.position.set(stageX - nx * 25, 18, stageZ - nz * 25);
                 screen.rotation.y = rotationY;
                 this.scene.add(screen);
             }
@@ -331,8 +358,8 @@ export class GameEngine {
                 const stand = new THREE.Mesh(grandstandGeom, grandstandMat);
                 const side = (i % 24 === 0) ? 1 : -1;
                 const dist = (this.roadWidth / 2 + 45) * side;
-                const sx = Math.cos(angle) * (this.roadRadius + dist);
-                const sz = Math.sin(angle) * (this.roadRadius + dist);
+                const sx = x + nx * dist;
+                const sz = z + nz * dist;
                 stand.position.set(sx, 7.5, sz);
                 stand.rotation.y = rotationY;
                 this.scene.add(stand);
@@ -341,8 +368,8 @@ export class GameEngine {
             if (i % 3 === 0) {
                 const side = (i % 6 === 0) ? 1 : -1;
                 const dist = (this.roadWidth / 2 + 25 + Math.random() * 40) * side;
-                const tx = Math.cos(angle) * (this.roadRadius + dist);
-                const tz = Math.sin(angle) * (this.roadRadius + dist);
+                const tx = x + nx * dist;
+                const tz = z + nz * dist;
 
                 const trunk = new THREE.Mesh(treeTrunkGeom, treeTrunkMat);
                 trunk.position.set(tx, 2.5, tz);
@@ -354,8 +381,8 @@ export class GameEngine {
                 this.scene.add(top);
 
                 if (i % 9 === 0) {
-                    const bx = Math.cos(angle) * (this.roadRadius + (this.roadWidth / 2 + 4) * side);
-                    const bz = Math.sin(angle) * (this.roadRadius + (this.roadWidth / 2 + 4) * side);
+                    const bx = x + nx * (this.roadWidth / 2 + 4) * side;
+                    const bz = z + nz * (this.roadWidth / 2 + 4) * side;
                     const banner = new THREE.Mesh(bannerGeom, bannerMat);
                     banner.position.set(bx, 6, bz);
                     banner.rotation.y = rotationY;
@@ -370,11 +397,15 @@ export class GameEngine {
         for (let i = 0; i < 15; i++) {
             const balloon = new THREE.Mesh(balloonGeom, new THREE.MeshStandardMaterial({ color: balloonColors[i % 6] }));
             const angle = Math.random() * Math.PI * 2;
-            const dist = this.roadRadius + 300 + Math.random() * 400;
+            const { x, z, dx, dz } = this.getTrackPoint(angle);
+            const len = Math.sqrt(dx*dx + dz*dz);
+            const nx = dz / len;
+            const nz = -dx / len;
+            const dist = 300 + Math.random() * 400;
             balloon.position.set(
-                Math.cos(angle) * dist,
+                x + nx * dist,
                 80 + Math.random() * 100,
-                Math.sin(angle) * dist
+                z + nz * dist
             );
             this.scene.add(balloon);
         }
@@ -385,12 +416,14 @@ export class GameEngine {
         const chassisHalfHeight = 0.4;
         const chassisHalfLength = 2.5;
 
+        const startPoint = this.getTrackPoint(0);
+
         const chassisShape = box.create({ halfExtents: [chassisHalfWidth, chassisHalfHeight, chassisHalfLength], convexRadius: 0.2 }); // More rounded edges
         const chassisBody = rigidBody.create(this.world, {
             shape: chassisShape,
             objectLayer: layerMoving,
             motionType: MotionType.DYNAMIC,
-            position: vec3.fromValues(this.roadRadius, 3, 0),
+            position: vec3.fromValues(startPoint.x, 3, startPoint.z),
             quaternion: quat.fromEuler(quat.create(), [0, 0, 0]),
             mass: 1800, // Heavier for better stability at high speeds
             restitution: 0.05,
@@ -436,10 +469,10 @@ export class GameEngine {
         // --- Supercar Mesh ---
         this.chassisMesh = new THREE.Group();
         
-        // Main body (Vibrant Orange)
+        // Main body (Dynamic Color)
         const bodyGeom = new THREE.BoxGeometry(chassisHalfWidth * 2, chassisHalfHeight * 2, chassisHalfLength * 2);
         const bodyMat = new THREE.MeshPhysicalMaterial({ 
-            color: '#FF5722',
+            color: this.carColor,
             roughness: 0.1,
             metalness: 0.3,
             clearcoat: 1.0,
@@ -565,6 +598,7 @@ export class GameEngine {
                 case 'Space': this.controls.brake = true; break;
                 case 'ShiftLeft': case 'ShiftRight': this.controls.nitro = true; break;
                 case 'KeyR': this.resetCar(); break;
+                case 'Escape': this.togglePause(); break;
             }
         };
         const onKeyUp = (e: KeyboardEvent) => {
@@ -589,6 +623,28 @@ export class GameEngine {
         this.camera.aspect = width / height;
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(width, height);
+    }
+
+    public togglePause() {
+        this.state.isPaused = !this.state.isPaused;
+        this.notifyStateChange();
+    }
+
+    public restart() {
+        this.resetCar();
+        this.state.currentLapTime = 0;
+        this.state.laps = 0;
+        this.state.lastLapTime = 0;
+        this.state.bestLapTime = 0;
+        this.state.speed = 0;
+        this.state.nitro = 100;
+        this.state.distance = 0;
+        this.state.gameOver = false;
+        this.state.isPaused = false;
+        this.raceStarted = false;
+        this.hasPassedCheckpoint = false;
+        this.lastAngle = 0;
+        this.notifyStateChange();
     }
 
     private resetCar() {
@@ -645,6 +701,11 @@ export class GameEngine {
 
         if (this.state.gameOver) return;
 
+        if (this.state.isPaused) {
+            this.renderer.render(this.scene, this.camera);
+            return;
+        }
+
         // Apply controls
         let engineForce = 0;
         let steering = 0;
@@ -684,6 +745,7 @@ export class GameEngine {
         this.updateResetLogic(delta);
 
         const cb = this.vehicle.chassisBody;
+        this.state.carPosition = { x: cb.position[0], z: cb.position[2] };
         
         // Juice
         this.updateJuice(delta, this.state.speed);
@@ -704,7 +766,9 @@ export class GameEngine {
         this.state.speed = Math.round(speed * 3.6); 
         
         // Distance Progress (Angle-based)
-        const carAngle = Math.atan2(cb.position[2], cb.position[0]);
+        const a = this.trackId === 'oval' ? 800 : 400;
+        const b = 400;
+        const carAngle = Math.atan2(cb.position[2] / b, cb.position[0] / a);
         const normalizedAngle = (carAngle + Math.PI) / (2 * Math.PI);
         this.state.distance = normalizedAngle * 100;
 

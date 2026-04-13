@@ -1,13 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { GameEngine, GameState } from './game/GameEngine';
-import { Zap } from 'lucide-react';
+import { Zap, Pause } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import HomeMenu from './components/HomeMenu';
+import Garage from './components/Garage';
+import TrackSelect from './components/TrackSelect';
+import PauseMenu from './components/PauseMenu';
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<GameEngine | null>(null);
   const [isStarted, setIsStarted] = useState(false);
+  const [showGarage, setShowGarage] = useState(false);
+  const [showTrackSelect, setShowTrackSelect] = useState(false);
+  const [carColor, setCarColor] = useState('#FF5722');
+  const [trackId, setTrackId] = useState('circle');
   
   const [gameState, setGameState] = useState<GameState>({
     speed: 0,
@@ -17,7 +24,9 @@ export default function App() {
     lastLapTime: 0,
     bestLapTime: 0,
     currentLapTime: 0,
+    carPosition: { x: 0, z: 0 },
     gameOver: false,
+    isPaused: false,
   });
 
   const formatTime = (seconds: number) => {
@@ -33,7 +42,7 @@ export default function App() {
       engineRef.current.cleanup();
     }
     if (canvasRef.current) {
-      engineRef.current = new GameEngine(canvasRef.current, setGameState);
+      engineRef.current = new GameEngine(canvasRef.current, setGameState, carColor, trackId);
     }
   };
 
@@ -41,6 +50,21 @@ export default function App() {
     setIsStarted(true);
     initGame();
   };
+
+  const handleExit = () => {
+    setIsStarted(false);
+    if (engineRef.current) {
+      engineRef.current.cleanup();
+      engineRef.current = null;
+    }
+  };
+
+  // Re-initialize game if color or track changes while not started (to update the background canvas)
+  useEffect(() => {
+    if (!isStarted) {
+      initGame();
+    }
+  }, [carColor, trackId]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -61,7 +85,7 @@ export default function App() {
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-black font-sans selection:bg-[#E91E63] selection:text-white">
       <AnimatePresence>
-        {!isStarted && (
+        {!isStarted && !showGarage && !showTrackSelect && (
           <motion.div
             key="menu"
             initial={{ opacity: 0 }}
@@ -70,20 +94,80 @@ export default function App() {
             transition={{ duration: 0.8, ease: [0.43, 0.13, 0.23, 0.96] }}
             className="absolute inset-0 z-[100]"
           >
-            <HomeMenu onStart={handleStart} />
+            <HomeMenu 
+              onStart={handleStart} 
+              onOpenGarage={() => setShowGarage(true)} 
+              onOpenTrackSelect={() => setShowTrackSelect(true)}
+            />
+          </motion.div>
+        )}
+
+        {showGarage && (
+          <motion.div
+            key="garage"
+            initial={{ opacity: 0, x: '-100%' }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: '-100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            className="absolute inset-0 z-[110]"
+          >
+            <Garage 
+              onBack={() => setShowGarage(false)} 
+              selectedColor={carColor}
+              onSelectColor={setCarColor}
+            />
+          </motion.div>
+        )}
+
+        {showTrackSelect && (
+          <motion.div
+            key="trackSelect"
+            initial={{ opacity: 0, x: '100%' }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            className="absolute inset-0 z-[110]"
+          >
+            <TrackSelect 
+              onBack={() => setShowTrackSelect(false)} 
+              selectedTrack={trackId}
+              onSelectTrack={setTrackId}
+            />
           </motion.div>
         )}
       </AnimatePresence>
 
-      <canvas ref={canvasRef} className={`absolute inset-0 w-full h-full block transition-opacity duration-1000 ${isStarted ? 'opacity-100' : 'opacity-0'}`} />
+      <canvas ref={canvasRef} className={`absolute inset-0 w-full h-full block transition-opacity duration-1000 ${isStarted ? 'opacity-100' : 'opacity-40'}`} />
       
       {isStarted && (
         <>
+          <AnimatePresence>
+            {gameState.isPaused && (
+              <PauseMenu 
+                onResume={() => engineRef.current?.togglePause()}
+                onRestart={() => engineRef.current?.restart()}
+                onExit={handleExit}
+              />
+            )}
+          </AnimatePresence>
+
           {/* HUD Overlay - Lighter */}
           <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-transparent via-transparent to-white/10" />
           
           {/* Noise Texture */}
           <div className="absolute inset-0 pointer-events-none opacity-[0.02] mix-blend-overlay" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg viewBox=%220 0 200 200%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter id=%22noiseFilter%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.65%22 numOctaves=%223%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23noiseFilter)%22/%3E%3C/svg%3E")' }}></div>
+
+          {/* Pause Button - Top Left */}
+          <div className="absolute top-12 left-12 z-50">
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={() => engineRef.current?.togglePause()}
+              className="bg-black/40 backdrop-blur-md border border-white/20 p-4 rounded-full text-white hover:bg-white/10 hover:border-white/40 transition-colors shadow-xl"
+            >
+              <Pause className="w-6 h-6" fill="currentColor" />
+            </motion.button>
+          </div>
 
           {/* Global Lap Counter - Top Center */}
           <div className="absolute top-12 left-1/2 -translate-x-1/2 pointer-events-none z-50">
@@ -249,16 +333,84 @@ export default function App() {
             </motion.div>
           </div>
 
-          {/* Controls Hint - Bottom Left */}
-          <div className="absolute bottom-8 left-8 pointer-events-none">
-            <div className="flex flex-col gap-2">
-              <div className="flex gap-2 text-[10px] font-mono tracking-widest uppercase text-black opacity-50">
-                <span className="px-2 py-1 border border-black/20 rounded">W A S D</span>
-                <span className="px-2 py-1 border border-black/20 rounded">Space</span>
-                <span className="px-2 py-1 border border-black/20 rounded bg-black text-white">Shift (Nitro)</span>
-                <span className="px-2 py-1 border border-[#E91E63]/40 rounded bg-[#E91E63] text-white">R (Reset)</span>
+          {/* Minimap - Bottom Left */}
+          <div className="absolute bottom-12 left-12 pointer-events-none">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="relative w-48 h-48 bg-black/40 backdrop-blur-md rounded-full border border-white/10 overflow-hidden shadow-2xl"
+            >
+              {/* Track Path */}
+              <svg viewBox={trackId === 'circle' ? "-500 -500 1000 1000" : "-900 -500 1800 1000"} className="w-full h-full">
+                {trackId === 'circle' ? (
+                  <>
+                    <circle 
+                      cx="0" cy="0" r="400" 
+                      fill="none" 
+                      stroke="white" 
+                      strokeWidth="40" 
+                      className="opacity-10" 
+                    />
+                    <circle 
+                      cx="0" cy="0" r="400" 
+                      fill="none" 
+                      stroke="white" 
+                      strokeWidth="2" 
+                      strokeDasharray="10 10" 
+                      className="opacity-20" 
+                    />
+                    {/* Start/Finish Line Indicator */}
+                    <line x1="380" y1="0" x2="420" y2="0" stroke="#E91E63" strokeWidth="10" className="opacity-80" />
+                  </>
+                ) : (
+                  <>
+                    <ellipse 
+                      cx="0" cy="0" rx="800" ry="400"
+                      fill="none" 
+                      stroke="white" 
+                      strokeWidth="40" 
+                      className="opacity-10" 
+                    />
+                    <ellipse 
+                      cx="0" cy="0" rx="800" ry="400"
+                      fill="none" 
+                      stroke="white" 
+                      strokeWidth="2" 
+                      strokeDasharray="10 10" 
+                      className="opacity-20" 
+                    />
+                    {/* Start/Finish Line Indicator */}
+                    <line x1="780" y1="0" x2="820" y2="0" stroke="#E91E63" strokeWidth="10" className="opacity-80" />
+                  </>
+                )}
+
+                {/* Player Marker */}
+                <motion.g
+                  animate={{ 
+                    x: gameState.carPosition.x, 
+                    y: gameState.carPosition.z 
+                  }}
+                  transition={{ type: "spring", damping: 20, stiffness: 100 }}
+                >
+                  <circle r="15" fill="#E91E63" className="drop-shadow-[0_0_8px_#E91E63]" />
+                  <circle r="25" fill="#E91E63" className="opacity-20 animate-ping" />
+                </motion.g>
+              </svg>
+
+              {/* Label */}
+              <div className="absolute top-4 left-1/2 -translate-x-1/2 w-max">
+                <span className="text-[8px] font-black uppercase tracking-[0.3em] text-white/40">
+                  {trackId === 'circle' ? 'Apex Circuit' : 'Neon Oval'}
+                </span>
               </div>
-              <span className="text-[10px] font-bold text-[#E91E63] animate-pulse uppercase tracking-widest">Stuck? Press R to Reset!</span>
+            </motion.div>
+          </div>
+
+          {/* Controls Hint - Bottom Right */}
+          <div className="absolute bottom-12 right-12 pointer-events-none">
+            <div className="bg-black/40 backdrop-blur-md border border-white/10 px-4 py-2 rounded-sm flex items-center gap-3">
+              <span className="text-[10px] font-black uppercase tracking-widest text-white/60">Pause</span>
+              <span className="px-2 py-1 bg-white/10 rounded text-[10px] font-mono font-bold text-white">ESC</span>
             </div>
           </div>
         </>

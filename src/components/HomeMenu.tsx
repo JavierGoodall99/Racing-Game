@@ -1,11 +1,13 @@
 import { motion } from 'framer-motion';
-import { Play, Settings, Trophy, Info } from 'lucide-react';
+import { Play, Settings, Trophy, Info, Map } from 'lucide-react';
 
 interface HomeMenuProps {
   onStart: () => void;
+  onOpenGarage: () => void;
+  onOpenTrackSelect: () => void;
 }
 
-export default function HomeMenu({ onStart }: HomeMenuProps) {
+export default function HomeMenu({ onStart, onOpenGarage, onOpenTrackSelect }: HomeMenuProps) {
   return (
     <div className="absolute inset-0 z-[100] flex flex-col items-center justify-center bg-black overflow-hidden font-sans">
       {/* Background Elements */}
@@ -26,7 +28,7 @@ export default function HomeMenu({ onStart }: HomeMenuProps) {
           transition={{ delay: 0.5 }}
           className="mb-4"
         >
-          <span className="text-[10px] font-black uppercase tracking-[1em] text-white/40">Horizon Circuit Series</span>
+          <span className="text-[10px] font-black uppercase tracking-[1em] text-white/40">Apex Circuit Series</span>
         </motion.div>
 
         {/* Massive Title */}
@@ -37,7 +39,7 @@ export default function HomeMenu({ onStart }: HomeMenuProps) {
             transition={{ type: "spring", damping: 12, stiffness: 100 }}
             className="text-[15vw] font-black italic tracking-tighter leading-[0.8] text-white uppercase italic-racing"
           >
-            HORIZON
+            APEX
           </motion.h1>
           <motion.div 
             initial={{ x: -100, opacity: 0 }}
@@ -66,14 +68,16 @@ export default function HomeMenu({ onStart }: HomeMenuProps) {
             </div>
           </motion.button>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             {[
-              { icon: Trophy, label: 'Garage' },
+              { icon: Trophy, label: 'Garage', onClick: onOpenGarage },
+              { icon: Map, label: 'Tracks', onClick: onOpenTrackSelect },
               { icon: Settings, label: 'Settings' },
               { icon: Info, label: 'About' }
             ].map((item, i) => (
               <motion.button
                 key={item.label}
+                onClick={item.onClick}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.6 + (i * 0.1) }}
