@@ -36,6 +36,7 @@ export type GameState = {
     bestLapTime: number;
     currentLapTime: number;
     carPosition: { x: number; z: number };
+    aiPosition: { x: number; z: number };
     gameOver: boolean;
     isPaused: boolean;
 };
@@ -48,6 +49,14 @@ export class GameEngine {
     private vehicle!: Vehicle;
     private chassisMesh!: THREE.Group;
     private wheelMeshes: THREE.Group[] = [];
+    
+    private aiVehicle!: Vehicle;
+    private aiChassisMesh!: THREE.Group;
+    private aiWheelMeshes: THREE.Group[] = [];
+    private aiProgressAngle: number = 0;
+    private aiColor: string = '#00E5FF';
+    private aiStuckTimer: number = 0;
+
     private controls = { forward: false, backward: false, left: false, right: false, brake: false, nitro: false, reset: false };
     private lastTime: number = 0;
     private animationFrameId: number = 0;
@@ -66,6 +75,7 @@ export class GameEngine {
         bestLapTime: 0,
         currentLapTime: 0,
         carPosition: { x: 0, z: 0 },
+        aiPosition: { x: 0, z: 0 },
         gameOver: false,
         isPaused: false,
     };
@@ -143,7 +153,18 @@ export class GameEngine {
         this.createScenicTrack(LAYER_STATIC);
 
         // --- Vehicle Setup ---
-        this.createSupercarVehicle(LAYER_MOVING, this.queryFilter);
+        const playerStart = this.getTrackPoint(-0.02); // Start slightly behind
+        const aiStart = this.getTrackPoint(0.02); // AI starts slightly ahead
+
+        const playerVehicleData = this.createVehicleInstance(LAYER_MOVING, this.queryFilter, this.carColor, playerStart, -2);
+        this.vehicle = playerVehicleData.vehicle;
+        this.chassisMesh = playerVehicleData.chassisMesh;
+        this.wheelMeshes = playerVehicleData.wheelMeshes;
+
+        const aiVehicleData = this.createVehicleInstance(LAYER_MOVING, this.queryFilter, this.aiColor, aiStart, 2);
+        this.aiVehicle = aiVehicleData.vehicle;
+        this.aiChassisMesh = aiVehicleData.chassisMesh;
+        this.aiWheelMeshes = aiVehicleData.wheelMeshes;
         
         // --- Input ---
         this.setupInput();
@@ -435,26 +456,35 @@ export class GameEngine {
         }
     }
 
-    private createSupercarVehicle(layerMoving: number, queryFilter: any) {
+    private createVehicleInstance(layerMoving: number, queryFilter: any, color: string, startPoint: {x: number, z: number, dx: number, dz: number}, offsetX: number) {
         const chassisHalfWidth = 1.1;
         const chassisHalfHeight = 0.4;
         const chassisHalfLength = 2.5;
 
-        const startPoint = this.getTrackPoint(0);
+        // Calculate start position with offset perpendicular to track direction
+        const len = Math.sqrt(startPoint.dx * startPoint.dx + startPoint.dz * startPoint.dz);
+        const nx = startPoint.dz / len;
+        const nz = -startPoint.dx / len;
+        
+        const startX = startPoint.x + nx * offsetX;
+        const startZ = startPoint.z + nz * offsetX;
+        
+        // Calculate initial rotation to face track direction
+        const angle = Math.atan2(-startPoint.dx, -startPoint.dz);
 
         const chassisShape = box.create({ halfExtents: [chassisHalfWidth, chassisHalfHeight, chassisHalfLength], convexRadius: 0.2 }); // More rounded edges
         const chassisBody = rigidBody.create(this.world, {
             shape: chassisShape,
             objectLayer: layerMoving,
             motionType: MotionType.DYNAMIC,
-            position: vec3.fromValues(startPoint.x, 3, startPoint.z),
-            quaternion: quat.fromEuler(quat.create(), [0, 0, 0]),
+            position: vec3.fromValues(startX, 3, startZ),
+            quaternion: quat.fromEuler(quat.create(), [0, angle * 180 / Math.PI, 0]),
             mass: 1800, // Heavier for better stability at high speeds
             restitution: 0.05,
             friction: 0.5,
         });
 
-        this.vehicle = createVehicle(chassisBody, queryFilter);
+        const vehicle = createVehicle(chassisBody, queryFilter);
 
         const wheelRadius = 0.45;
         const wheelWidth = 0.4;
@@ -482,19 +512,19 @@ export class GameEngine {
             sideAcceleration: 2.0,
         };
 
-        addWheel(this.vehicle, { ...commonWheelOptions, chassisConnectionPointLocal: vec3.fromValues(-vehicleWidth * 0.5, vehicleHeight, vehicleFront) });
-        addWheel(this.vehicle, { ...commonWheelOptions, chassisConnectionPointLocal: vec3.fromValues(vehicleWidth * 0.5, vehicleHeight, vehicleFront) });
-        addWheel(this.vehicle, { ...commonWheelOptions, chassisConnectionPointLocal: vec3.fromValues(-vehicleWidth * 0.5, vehicleHeight, vehicleBack) });
-        addWheel(this.vehicle, { ...commonWheelOptions, chassisConnectionPointLocal: vec3.fromValues(vehicleWidth * 0.5, vehicleHeight, vehicleBack) });
+        addWheel(vehicle, { ...commonWheelOptions, chassisConnectionPointLocal: vec3.fromValues(-vehicleWidth * 0.5, vehicleHeight, vehicleFront) });
+        addWheel(vehicle, { ...commonWheelOptions, chassisConnectionPointLocal: vec3.fromValues(vehicleWidth * 0.5, vehicleHeight, vehicleFront) });
+        addWheel(vehicle, { ...commonWheelOptions, chassisConnectionPointLocal: vec3.fromValues(-vehicleWidth * 0.5, vehicleHeight, vehicleBack) });
+        addWheel(vehicle, { ...commonWheelOptions, chassisConnectionPointLocal: vec3.fromValues(vehicleWidth * 0.5, vehicleHeight, vehicleBack) });
 
-        addAntiRollBar(this.vehicle, { leftWheel: 0, rightWheel: 1, stiffness: 20000 });
-        addAntiRollBar(this.vehicle, { leftWheel: 2, rightWheel: 3, stiffness: 20000 });
+        addAntiRollBar(vehicle, { leftWheel: 0, rightWheel: 1, stiffness: 20000 });
+        addAntiRollBar(vehicle, { leftWheel: 2, rightWheel: 3, stiffness: 20000 });
 
         // --- Low-Poly Convertible Mesh ---
-        this.chassisMesh = new THREE.Group();
+        const chassisMesh = new THREE.Group();
         
         const carMat = new THREE.MeshPhysicalMaterial({ 
-            color: this.carColor,
+            color: color,
             roughness: 0.4,
             metalness: 0.1,
             clearcoat: 0.2,
@@ -511,71 +541,71 @@ export class GameEngine {
         const baseMesh = new THREE.Mesh(baseGeom, carMat);
         baseMesh.position.y = -chassisHalfHeight * 0.2;
         baseMesh.castShadow = true;
-        this.chassisMesh.add(baseMesh);
+        chassisMesh.add(baseMesh);
 
         // Hood
         const hoodGeom = new THREE.BoxGeometry(chassisHalfWidth * 2, chassisHalfHeight * 0.6, chassisHalfLength * 0.8);
         const hoodMesh = new THREE.Mesh(hoodGeom, carMat);
         hoodMesh.position.set(0, chassisHalfHeight * 0.7, -chassisHalfLength * 0.6);
         hoodMesh.castShadow = true;
-        this.chassisMesh.add(hoodMesh);
+        chassisMesh.add(hoodMesh);
 
         // Trunk
         const trunkGeom = new THREE.BoxGeometry(chassisHalfWidth * 2, chassisHalfHeight * 0.6, chassisHalfLength * 0.5);
         const trunkMesh = new THREE.Mesh(trunkGeom, carMat);
         trunkMesh.position.set(0, chassisHalfHeight * 0.7, chassisHalfLength * 0.75);
         trunkMesh.castShadow = true;
-        this.chassisMesh.add(trunkMesh);
+        chassisMesh.add(trunkMesh);
 
         // Side panels
         const sideGeom = new THREE.BoxGeometry(0.2, chassisHalfHeight * 0.6, chassisHalfLength * 0.7);
         const sideL = new THREE.Mesh(sideGeom, carMat);
         sideL.position.set(-chassisHalfWidth + 0.1, chassisHalfHeight * 0.7, chassisHalfLength * 0.15);
         sideL.castShadow = true;
-        this.chassisMesh.add(sideL);
+        chassisMesh.add(sideL);
         const sideR = new THREE.Mesh(sideGeom, carMat);
         sideR.position.set(chassisHalfWidth - 0.1, chassisHalfHeight * 0.7, chassisHalfLength * 0.15);
         sideR.castShadow = true;
-        this.chassisMesh.add(sideR);
+        chassisMesh.add(sideR);
 
         // Dashboard
         const dashGeom = new THREE.BoxGeometry(chassisHalfWidth * 2, chassisHalfHeight * 0.5, 0.4);
         const dashMesh = new THREE.Mesh(dashGeom, darkMat);
         dashMesh.position.set(0, chassisHalfHeight * 0.65, -chassisHalfLength * 0.1);
-        this.chassisMesh.add(dashMesh);
+        chassisMesh.add(dashMesh);
 
         // Windshield Frame
         const frameGeom = new THREE.BoxGeometry(chassisHalfWidth * 2, chassisHalfHeight * 1.5, 0.1);
         const frameMesh = new THREE.Mesh(frameGeom, darkMat);
         frameMesh.position.set(0, chassisHalfHeight * 1.75, -chassisHalfLength * 0.15);
         frameMesh.rotation.x = -Math.PI / 8;
-        this.chassisMesh.add(frameMesh);
+        chassisMesh.add(frameMesh);
 
         // Windshield Glass
         const glassGeom = new THREE.BoxGeometry(chassisHalfWidth * 1.8, chassisHalfHeight * 1.3, 0.12);
         const glassMesh = new THREE.Mesh(glassGeom, glassMat);
         glassMesh.position.set(0, chassisHalfHeight * 1.75, -chassisHalfLength * 0.15);
         glassMesh.rotation.x = -Math.PI / 8;
-        this.chassisMesh.add(glassMesh);
+        chassisMesh.add(glassMesh);
 
         // Mirrors
         const mirrorGeom = new THREE.BoxGeometry(0.3, 0.2, 0.2);
         const mirrorL = new THREE.Mesh(mirrorGeom, darkMat);
         mirrorL.position.set(-chassisHalfWidth - 0.15, chassisHalfHeight * 1.5, -chassisHalfLength * 0.1);
-        this.chassisMesh.add(mirrorL);
+        chassisMesh.add(mirrorL);
         const mirrorR = new THREE.Mesh(mirrorGeom, darkMat);
         mirrorR.position.set(chassisHalfWidth + 0.15, chassisHalfHeight * 1.5, -chassisHalfLength * 0.1);
-        this.chassisMesh.add(mirrorR);
+        chassisMesh.add(mirrorR);
 
         // Bumpers
         const bumperGeom = new THREE.BoxGeometry(chassisHalfWidth * 2.1, 0.25, 0.3);
         const frontBumper = new THREE.Mesh(bumperGeom, darkMat);
         frontBumper.position.set(0, -chassisHalfHeight * 0.2, -chassisHalfLength - 0.05);
-        this.chassisMesh.add(frontBumper);
+        chassisMesh.add(frontBumper);
 
         const rearBumper = new THREE.Mesh(bumperGeom, darkMat);
         rearBumper.position.set(0, -chassisHalfHeight * 0.2, chassisHalfLength + 0.05);
-        this.chassisMesh.add(rearBumper);
+        chassisMesh.add(rearBumper);
 
         // Headlights
         const headLightGeom = new THREE.BoxGeometry(0.5, 0.2, 0.1);
@@ -583,8 +613,8 @@ export class GameEngine {
         headL.position.set(-0.7, chassisHalfHeight * 0.7, -chassisHalfLength - 0.01);
         const headR = new THREE.Mesh(headLightGeom, lightMat);
         headR.position.set(0.7, chassisHalfHeight * 0.7, -chassisHalfLength - 0.01);
-        this.chassisMesh.add(headL);
-        this.chassisMesh.add(headR);
+        chassisMesh.add(headL);
+        chassisMesh.add(headR);
 
         // Tail lights
         const tailLightGeom = new THREE.BoxGeometry(0.4, 0.15, 0.1);
@@ -592,8 +622,8 @@ export class GameEngine {
         tailL.position.set(-0.7, chassisHalfHeight * 0.7, chassisHalfLength + 0.01);
         const tailR = new THREE.Mesh(tailLightGeom, tailLightMat);
         tailR.position.set(0.7, chassisHalfHeight * 0.7, chassisHalfLength + 0.01);
-        this.chassisMesh.add(tailL);
-        this.chassisMesh.add(tailR);
+        chassisMesh.add(tailL);
+        chassisMesh.add(tailR);
 
         // Exhaust
         const exhaustGeom = new THREE.CylinderGeometry(0.1, 0.1, 0.4, 8);
@@ -604,15 +634,15 @@ export class GameEngine {
         const exhaustR = new THREE.Mesh(exhaustGeom, exhaustMat);
         exhaustR.rotation.x = Math.PI / 2;
         exhaustR.position.set(0.2, -chassisHalfHeight * 0.9, chassisHalfLength + 0.1);
-        this.chassisMesh.add(exhaustL);
-        this.chassisMesh.add(exhaustR);
+        chassisMesh.add(exhaustL);
+        chassisMesh.add(exhaustR);
 
         // Steering wheel (Right side)
         const wheelGeom2 = new THREE.TorusGeometry(0.25, 0.05, 8, 16);
         const steeringWheel = new THREE.Mesh(wheelGeom2, darkMat);
         steeringWheel.position.set(0.5, chassisHalfHeight * 1.0, 0.1);
         steeringWheel.rotation.x = -Math.PI / 4;
-        this.chassisMesh.add(steeringWheel);
+        chassisMesh.add(steeringWheel);
 
         // Cat driver (Right side)
         const catGroup = new THREE.Group();
@@ -632,20 +662,20 @@ export class GameEngine {
         catGroup.add(earR);
 
         catGroup.position.set(0.5, chassisHalfHeight * 1.4, 0.4);
-        this.chassisMesh.add(catGroup);
+        chassisMesh.add(catGroup);
 
         // Seats
         const seatGeom = new THREE.BoxGeometry(0.8, 0.8, 0.2);
         const seatL = new THREE.Mesh(seatGeom, darkMat);
         seatL.position.set(-0.5, chassisHalfHeight * 0.8, 0.7);
         seatL.rotation.x = -Math.PI / 12;
-        this.chassisMesh.add(seatL);
+        chassisMesh.add(seatL);
         const seatR = new THREE.Mesh(seatGeom, darkMat);
         seatR.position.set(0.5, chassisHalfHeight * 0.8, 0.7);
         seatR.rotation.x = -Math.PI / 12;
-        this.chassisMesh.add(seatR);
+        chassisMesh.add(seatR);
 
-        this.scene.add(this.chassisMesh);
+        this.scene.add(chassisMesh);
 
         // --- Wheels ---
         const wheelGeom = new THREE.CylinderGeometry(wheelRadius, wheelRadius, wheelWidth, 32);
@@ -653,6 +683,7 @@ export class GameEngine {
         const rimGeom = new THREE.CylinderGeometry(wheelRadius * 0.7, wheelRadius * 0.7, wheelWidth * 1.1, 5);
         const rimMat = new THREE.MeshStandardMaterial({ color: '#333333', metalness: 1, roughness: 0.2 });
         
+        const wheelMeshes: THREE.Group[] = [];
         for (let i = 0; i < 4; i++) {
             const group = new THREE.Group();
             const tire = new THREE.Mesh(wheelGeom, wheelMat);
@@ -663,8 +694,10 @@ export class GameEngine {
             rim.rotation.z = Math.PI / 2;
             group.add(rim);
             this.scene.add(group);
-            this.wheelMeshes.push(group);
+            wheelMeshes.push(group);
         }
+
+        return { vehicle, chassisMesh, wheelMeshes };
     }
 
     private setupJuice() {
@@ -776,7 +809,10 @@ export class GameEngine {
     }
 
     public restart() {
-        this.resetCar();
+        this.resetCarToStart(this.vehicle, -0.02, -2);
+        if (this.aiVehicle) {
+            this.resetCarToStart(this.aiVehicle, 0.02, 2);
+        }
         this.state.currentLapTime = 0;
         this.state.laps = 0;
         this.state.lastLapTime = 0;
@@ -792,21 +828,52 @@ export class GameEngine {
         this.notifyStateChange();
     }
 
+    private resetCarToStart(vehicle: Vehicle, angleOffset: number, offsetX: number) {
+        const cb = vehicle.chassisBody;
+        const startPoint = this.getTrackPoint(angleOffset);
+        
+        const len = Math.sqrt(startPoint.dx * startPoint.dx + startPoint.dz * startPoint.dz);
+        const nx = startPoint.dz / len;
+        const nz = -startPoint.dx / len;
+        
+        const startX = startPoint.x + nx * offsetX;
+        const startZ = startPoint.z + nz * offsetX;
+        const angle = Math.atan2(-startPoint.dx, -startPoint.dz);
+
+        cb.position[0] = startX;
+        cb.position[1] = 3;
+        cb.position[2] = startZ;
+        
+        const q = quat.fromEuler(quat.create(), [0, angle * 180 / Math.PI, 0]);
+        cb.quaternion[0] = q[0];
+        cb.quaternion[1] = q[1];
+        cb.quaternion[2] = q[2];
+        cb.quaternion[3] = q[3];
+
+        vec3.zero(cb.motionProperties.linearVelocity);
+        vec3.zero(cb.motionProperties.angularVelocity);
+    }
+
     private resetCar() {
         const cb = this.vehicle.chassisBody;
         
         // Find current position on the track
-        const angle = Math.atan2(cb.position[2], cb.position[0]);
-        const x = Math.cos(angle) * this.roadRadius;
-        const z = Math.sin(angle) * this.roadRadius;
-        const rotationY = -angle;
+        let angle = 0;
+        if (this.trackId === 'oval') {
+            angle = Math.atan2(cb.position[2] / 400, cb.position[0] / 800);
+        } else {
+            angle = Math.atan2(cb.position[2], cb.position[0]);
+        }
+        
+        const trackPoint = this.getTrackPoint(angle);
+        const rotationY = Math.atan2(-trackPoint.dx, -trackPoint.dz);
 
         // Reset position and rotation
-        cb.position[0] = x;
+        cb.position[0] = trackPoint.x;
         cb.position[1] = 2; // Slightly above ground
-        cb.position[2] = z;
+        cb.position[2] = trackPoint.z;
         
-        const q = quat.fromEuler(quat.create(), [0, (rotationY * 180) / Math.PI, 0]);
+        const q = quat.fromEuler(quat.create(), [0, rotationY * 180 / Math.PI, 0]);
         cb.quaternion[0] = q[0];
         cb.quaternion[1] = q[1];
         cb.quaternion[2] = q[2];
@@ -834,6 +901,100 @@ export class GameEngine {
             }
         } else {
             this.flipTimer = 0;
+        }
+    }
+
+    private updateAI(delta: number) {
+        if (!this.aiVehicle) return;
+
+        const cb = this.aiVehicle.chassisBody;
+        rigidBody.wake(this.world, cb);
+        
+        const pos = new THREE.Vector3(cb.position[0], cb.position[1], cb.position[2]);
+        
+        // Find current angle
+        let currentAngle = 0;
+        if (this.trackId === 'oval') {
+            currentAngle = Math.atan2(pos.z / 400, pos.x / 800);
+        } else {
+            currentAngle = Math.atan2(pos.z, pos.x);
+        }
+        
+        // Look ahead dynamically based on speed
+        const velocity = new THREE.Vector3(cb.motionProperties.linearVelocity[0], cb.motionProperties.linearVelocity[1], cb.motionProperties.linearVelocity[2]);
+        const speed = velocity.length();
+        
+        const lookAheadAngle = currentAngle + 0.08 + (speed * 0.001); // Adjust for AI lookahead distance
+        const target = this.getTrackPoint(lookAheadAngle);
+        
+        // Offset target to keep AI in its lane (offsetX = 2)
+        const len = Math.sqrt(target.dx * target.dx + target.dz * target.dz);
+        const nx = target.dz / len;
+        const nz = -target.dx / len;
+        const targetPos = new THREE.Vector3(target.x + nx * 2, pos.y, target.z + nz * 2);
+
+        // Calculate direction to target
+        const dirToTarget = targetPos.clone().sub(pos).normalize();
+
+        // Get AI car's forward vector
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion(cb.quaternion[0], cb.quaternion[1], cb.quaternion[2], cb.quaternion[3]));
+
+        // Calculate steering angle using dot product and cross product
+        const dot = forward.dot(dirToTarget);
+        const cross = forward.clone().cross(dirToTarget);
+        
+        let steering = Math.sign(cross.y) * Math.acos(Math.max(-1, Math.min(1, dot)));
+        
+        // Clamp steering
+        const maxSteer = 0.35;
+        steering = Math.max(-maxSteer, Math.min(maxSteer, steering));
+
+        // Speed control
+        let engineForce = 0;
+        let brakeForce = 0;
+        
+        // Slow down on sharp turns
+        const targetSpeed = Math.abs(steering) > 0.15 ? 35 : 75; 
+        
+        if (speed < targetSpeed) {
+            engineForce = 4500; // AI acceleration
+        } else {
+            brakeForce = 150;
+        }
+
+        // Stuck detection
+        if (speed < 2 && this.raceStarted) {
+            this.aiStuckTimer += delta;
+            if (this.aiStuckTimer > 1.5) {
+                // Reverse and steer opposite way to get unstuck
+                engineForce = -4000;
+                steering = -steering;
+            }
+        } else {
+            this.aiStuckTimer = 0;
+        }
+
+        // Apply forces to AI vehicle
+        for (let i = 0; i < 4; i++) setBrakeValue(this.aiVehicle, brakeForce, i);
+        setSteeringValue(this.aiVehicle, steering, 0);
+        setSteeringValue(this.aiVehicle, steering, 1);
+        
+        setEngineForce(this.aiVehicle, engineForce, 0);
+        setEngineForce(this.aiVehicle, engineForce, 1);
+        setEngineForce(this.aiVehicle, engineForce, 2);
+        setEngineForce(this.aiVehicle, engineForce, 3);
+
+        updateVehicle(this.world, this.aiVehicle, delta);
+
+        // Update AI meshes
+        this.aiChassisMesh.position.set(cb.position[0], cb.position[1], cb.position[2]);
+        this.aiChassisMesh.quaternion.set(cb.quaternion[0], cb.quaternion[1], cb.quaternion[2], cb.quaternion[3]);
+
+        for (let i = 0; i < 4; i++) {
+            const w = this.aiVehicle.wheels[i];
+            const wm = this.aiWheelMeshes[i];
+            wm.position.set(w.state.worldTransformPosition[0], w.state.worldTransformPosition[1], w.state.worldTransformPosition[2]);
+            wm.quaternion.set(w.state.worldTransformQuaternion[0], w.state.worldTransformQuaternion[1], w.state.worldTransformQuaternion[2], w.state.worldTransformQuaternion[3]);
         }
     }
 
@@ -885,12 +1046,20 @@ export class GameEngine {
 
         // Physics step
         updateVehicle(this.world, this.vehicle, delta);
+        
+        if (this.raceStarted) {
+            this.updateAI(delta);
+        }
+
         updateWorld(this.world, undefined, delta);
 
         this.updateResetLogic(delta);
 
         const cb = this.vehicle.chassisBody;
         this.state.carPosition = { x: cb.position[0], z: cb.position[2] };
+        if (this.aiVehicle) {
+            this.state.aiPosition = { x: this.aiVehicle.chassisBody.position[0], z: this.aiVehicle.chassisBody.position[2] };
+        }
         
         // Juice
         this.updateJuice(delta, this.state.speed);
@@ -928,6 +1097,7 @@ export class GameEngine {
         // Lap Timing
         if (!this.raceStarted && (this.controls.forward || this.controls.backward || this.controls.left || this.controls.right)) {
             this.raceStarted = true;
+            rigidBody.wake(this.world, this.vehicle.chassisBody);
         }
 
         if (this.raceStarted && !this.state.gameOver) {

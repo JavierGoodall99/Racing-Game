@@ -54,6 +54,7 @@ export default function App() {
     bestLapTime: 0,
     currentLapTime: 0,
     carPosition: { x: 0, z: 0 },
+    aiPosition: { x: 0, z: 0 },
     gameOver: false,
     isPaused: false,
   });
@@ -488,6 +489,19 @@ export default function App() {
                   <circle r="15" fill="#E91E63" className="drop-shadow-[0_0_8px_#E91E63]" />
                   <circle r="25" fill="#E91E63" className="opacity-20 animate-ping" />
                 </motion.g>
+
+                {/* AI Marker */}
+                {gameState.aiPosition && (
+                  <motion.g
+                    animate={{ 
+                      x: gameState.aiPosition.x, 
+                      y: gameState.aiPosition.z 
+                    }}
+                    transition={{ type: "spring", damping: 20, stiffness: 100 }}
+                  >
+                    <circle r="15" fill="#00E5FF" className="drop-shadow-[0_0_8px_#00E5FF]" />
+                  </motion.g>
+                )}
               </svg>
 
               {/* Label */}
