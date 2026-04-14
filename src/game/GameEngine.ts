@@ -63,6 +63,7 @@ export class GameEngine {
     private timerId: any;
     private currentLookAt: THREE.Vector3 = new THREE.Vector3();
     private flipTimer: number = 0;
+    private aiFlipTimer: number = 0;
     
     private onStateChange: (state: GameState) => void;
     
@@ -153,8 +154,8 @@ export class GameEngine {
         this.createScenicTrack(LAYER_STATIC);
 
         // --- Vehicle Setup ---
-        const playerStart = this.getTrackPoint(-0.02); // Start slightly behind
-        const aiStart = this.getTrackPoint(0.02); // AI starts slightly ahead
+        const playerStart = this.getTrackPoint(0); // Start at the same line
+        const aiStart = this.getTrackPoint(0); // Start at the same line
 
         const playerVehicleData = this.createVehicleInstance(LAYER_MOVING, this.queryFilter, this.carColor, playerStart, -2);
         this.vehicle = playerVehicleData.vehicle;
@@ -477,7 +478,7 @@ export class GameEngine {
             shape: chassisShape,
             objectLayer: layerMoving,
             motionType: MotionType.DYNAMIC,
-            position: vec3.fromValues(startX, 3, startZ),
+            position: vec3.fromValues(startX, 1.5, startZ),
             quaternion: quat.fromEuler(quat.create(), [0, angle * 180 / Math.PI, 0]),
             mass: 1800, // Heavier for better stability at high speeds
             restitution: 0.05,
@@ -675,6 +676,10 @@ export class GameEngine {
         seatR.rotation.x = -Math.PI / 12;
         chassisMesh.add(seatR);
 
+        chassisMesh.position.set(startX, 1.5, startZ);
+        const q = quat.fromEuler(quat.create(), [0, angle * 180 / Math.PI, 0]);
+        chassisMesh.quaternion.set(q[0], q[1], q[2], q[3]);
+
         this.scene.add(chassisMesh);
 
         // --- Wheels ---
@@ -775,7 +780,7 @@ export class GameEngine {
                 case 'KeyD': case 'ArrowRight': this.controls.right = true; break;
                 case 'Space': this.controls.brake = true; break;
                 case 'ShiftLeft': case 'ShiftRight': this.controls.nitro = true; break;
-                case 'KeyR': this.resetCar(); break;
+                case 'KeyR': this.resetCar(this.vehicle, true); break;
                 case 'Escape': this.togglePause(); break;
             }
         };
@@ -809,9 +814,9 @@ export class GameEngine {
     }
 
     public restart() {
-        this.resetCarToStart(this.vehicle, -0.02, -2);
+        this.resetCarToStart(this.vehicle, 0, -2);
         if (this.aiVehicle) {
-            this.resetCarToStart(this.aiVehicle, 0.02, 2);
+            this.resetCarToStart(this.aiVehicle, 0, 2);
         }
         this.state.currentLapTime = 0;
         this.state.laps = 0;
@@ -841,7 +846,7 @@ export class GameEngine {
         const angle = Math.atan2(-startPoint.dx, -startPoint.dz);
 
         cb.position[0] = startX;
-        cb.position[1] = 3;
+        cb.position[1] = 1.5;
         cb.position[2] = startZ;
         
         const q = quat.fromEuler(quat.create(), [0, angle * 180 / Math.PI, 0]);
@@ -854,8 +859,8 @@ export class GameEngine {
         vec3.zero(cb.motionProperties.angularVelocity);
     }
 
-    private resetCar() {
-        const cb = this.vehicle.chassisBody;
+    private resetCar(vehicle: Vehicle, isPlayer: boolean = true) {
+        const cb = vehicle.chassisBody;
         
         // Find current position on the track
         let angle = 0;
@@ -883,24 +888,43 @@ export class GameEngine {
         vec3.zero(cb.motionProperties.linearVelocity);
         vec3.zero(cb.motionProperties.angularVelocity);
         
-        this.flipTimer = 0;
-        this.shakeAmount = 0.5; // Visual feedback
+        if (isPlayer) {
+            this.flipTimer = 0;
+            this.shakeAmount = 0.5; // Visual feedback
+        } else {
+            this.aiFlipTimer = 0;
+        }
     }
 
     private updateResetLogic(delta: number) {
-        const cb = this.vehicle.chassisBody;
+        // Check Player Car
+        const playerCb = this.vehicle.chassisBody;
+        const playerUp = vec3.fromValues(0, 1, 0);
+        vec3.transformQuat(playerUp, playerUp, playerCb.quaternion);
         
-        // Check if car is upside down (Up vector dot World Up < 0)
-        const up = vec3.fromValues(0, 1, 0);
-        vec3.transformQuat(up, up, cb.quaternion);
-        
-        if (up[1] < 0.2) { // Car is tilted or upside down
+        if (playerUp[1] < 0.2) { // Car is tilted or upside down
             this.flipTimer += delta;
             if (this.flipTimer > 3.0) { // Auto-reset after 3 seconds
-                this.resetCar();
+                this.resetCar(this.vehicle, true);
             }
         } else {
             this.flipTimer = 0;
+        }
+
+        // Check AI Car
+        if (this.aiVehicle) {
+            const aiCb = this.aiVehicle.chassisBody;
+            const aiUp = vec3.fromValues(0, 1, 0);
+            vec3.transformQuat(aiUp, aiUp, aiCb.quaternion);
+            
+            if (aiUp[1] < 0.2) { // Car is tilted or upside down
+                this.aiFlipTimer += delta;
+                if (this.aiFlipTimer > 3.0) { // Auto-reset after 3 seconds
+                    this.resetCar(this.aiVehicle, false);
+                }
+            } else {
+                this.aiFlipTimer = 0;
+            }
         }
     }
 
@@ -953,25 +977,31 @@ export class GameEngine {
         let engineForce = 0;
         let brakeForce = 0;
         
-        // Slow down on sharp turns
-        const targetSpeed = Math.abs(steering) > 0.15 ? 35 : 75; 
-        
-        if (speed < targetSpeed) {
-            engineForce = 4500; // AI acceleration
-        } else {
-            brakeForce = 150;
-        }
+        if (this.raceStarted) {
+            // Slow down on sharp turns
+            const targetSpeed = Math.abs(steering) > 0.15 ? 35 : 75; 
+            
+            if (speed < targetSpeed) {
+                engineForce = 4500; // AI acceleration
+            } else {
+                brakeForce = 150;
+            }
 
-        // Stuck detection
-        if (speed < 2 && this.raceStarted) {
-            this.aiStuckTimer += delta;
-            if (this.aiStuckTimer > 1.5) {
-                // Reverse and steer opposite way to get unstuck
-                engineForce = -4000;
-                steering = -steering;
+            // Stuck detection
+            if (speed < 2) {
+                this.aiStuckTimer += delta;
+                if (this.aiStuckTimer > 1.5) {
+                    // Reverse and steer opposite way to get unstuck
+                    engineForce = -4000;
+                    steering = -steering;
+                }
+            } else {
+                this.aiStuckTimer = 0;
             }
         } else {
-            this.aiStuckTimer = 0;
+            // Hold brakes before race starts
+            brakeForce = 1000;
+            steering = 0;
         }
 
         // Apply forces to AI vehicle
@@ -1047,7 +1077,7 @@ export class GameEngine {
         // Physics step
         updateVehicle(this.world, this.vehicle, delta);
         
-        if (this.raceStarted) {
+        if (this.aiVehicle) {
             this.updateAI(delta);
         }
 
@@ -1098,6 +1128,9 @@ export class GameEngine {
         if (!this.raceStarted && (this.controls.forward || this.controls.backward || this.controls.left || this.controls.right)) {
             this.raceStarted = true;
             rigidBody.wake(this.world, this.vehicle.chassisBody);
+            if (this.aiVehicle) {
+                rigidBody.wake(this.world, this.aiVehicle.chassisBody);
+            }
         }
 
         if (this.raceStarted && !this.state.gameOver) {
