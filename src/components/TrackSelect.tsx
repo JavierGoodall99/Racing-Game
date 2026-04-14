@@ -7,9 +7,24 @@ interface TrackSelectProps {
   onSelectTrack: (trackId: string) => void;
 }
 
+const getPreviewPath = () => {
+  let d = "";
+  for(let i=0; i<=60; i++) {
+    const t = (i/60) * Math.PI * 2;
+    const r = 60 + 20 * Math.sin(3*t);
+    const x = r * Math.cos(t);
+    const y = r * Math.sin(t);
+    if(i===0) d += `M ${x} ${y} `;
+    else d += `L ${x} ${y} `;
+  }
+  d += "Z";
+  return d;
+};
+
 const TRACKS = [
   { id: 'circle', name: 'Apex Circuit', description: 'High-speed circular track. Perfect for top speed testing.', difficulty: 'Easy' },
   { id: 'oval', name: 'Neon Oval', description: 'Elongated oval with long straights and tight curves.', difficulty: 'Medium' },
+  { id: 'serpentine', name: 'Serpent\'s Tail', description: 'A highly technical circuit with sharp, sweeping bends.', difficulty: 'Hard' },
 ];
 
 export default function TrackSelect({ onBack, selectedTrack, onSelectTrack }: TrackSelectProps) {
@@ -95,9 +110,13 @@ export default function TrackSelect({ onBack, selectedTrack, onSelectTrack }: Tr
                       <svg viewBox="-100 -100 200 200" className="w-24 h-24">
                         <circle cx="0" cy="0" r="80" fill="none" stroke={isSelected ? "#00E5FF" : "white"} strokeWidth="8" className={isSelected ? "opacity-100" : "opacity-40"} />
                       </svg>
-                    ) : (
+                    ) : track.id === 'oval' ? (
                       <svg viewBox="-150 -100 300 200" className="w-32 h-24">
                         <ellipse cx="0" cy="0" rx="120" ry="60" fill="none" stroke={isSelected ? "#00E5FF" : "white"} strokeWidth="8" className={isSelected ? "opacity-100" : "opacity-40"} />
+                      </svg>
+                    ) : (
+                      <svg viewBox="-120 -120 240 240" className="w-24 h-24">
+                        <path d={getPreviewPath()} fill="none" stroke={isSelected ? "#00E5FF" : "white"} strokeWidth="8" className={isSelected ? "opacity-100" : "opacity-40"} />
                       </svg>
                     )}
                   </div>
