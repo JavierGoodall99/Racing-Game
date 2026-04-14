@@ -490,39 +490,160 @@ export class GameEngine {
         addAntiRollBar(this.vehicle, { leftWheel: 0, rightWheel: 1, stiffness: 20000 });
         addAntiRollBar(this.vehicle, { leftWheel: 2, rightWheel: 3, stiffness: 20000 });
 
-        // --- Supercar Mesh ---
+        // --- Low-Poly Convertible Mesh ---
         this.chassisMesh = new THREE.Group();
         
-        // Main body (Dynamic Color)
-        const bodyGeom = new THREE.BoxGeometry(chassisHalfWidth * 2, chassisHalfHeight * 2, chassisHalfLength * 2);
-        const bodyMat = new THREE.MeshPhysicalMaterial({ 
+        const carMat = new THREE.MeshPhysicalMaterial({ 
             color: this.carColor,
-            roughness: 0.1,
-            metalness: 0.3,
-            clearcoat: 1.0,
-            clearcoatRoughness: 0.1
+            roughness: 0.4,
+            metalness: 0.1,
+            clearcoat: 0.2,
+            clearcoatRoughness: 0.2,
+            flatShading: true
         });
-        const bodyMesh = new THREE.Mesh(bodyGeom, bodyMat);
-        bodyMesh.castShadow = true;
-        this.chassisMesh.add(bodyMesh);
+        const darkMat = new THREE.MeshStandardMaterial({ color: '#333333', roughness: 0.8, flatShading: true });
+        const glassMat = new THREE.MeshStandardMaterial({ color: '#222222', transparent: true, opacity: 0.6, roughness: 0.1, metalness: 0.8 });
+        const lightMat = new THREE.MeshBasicMaterial({ color: '#ffffff' });
+        const tailLightMat = new THREE.MeshBasicMaterial({ color: '#dd3333' });
 
-        // Aerodynamic Cabin
-        const cabinGeom = new THREE.SphereGeometry(1, 32, 32, 0, Math.PI * 2, 0, Math.PI / 2);
-        const cabinMat = new THREE.MeshStandardMaterial({ color: '#111111', roughness: 0, metalness: 1 });
-        const cabinMesh = new THREE.Mesh(cabinGeom, cabinMat);
-        cabinMesh.scale.set(chassisHalfWidth * 0.8, chassisHalfHeight * 1.5, chassisHalfLength * 0.4);
-        cabinMesh.position.set(0, chassisHalfHeight, -0.2);
-        this.chassisMesh.add(cabinMesh);
+        // Main Body Base
+        const baseGeom = new THREE.BoxGeometry(chassisHalfWidth * 2, chassisHalfHeight * 1.2, chassisHalfLength * 2);
+        const baseMesh = new THREE.Mesh(baseGeom, carMat);
+        baseMesh.position.y = -chassisHalfHeight * 0.2;
+        baseMesh.castShadow = true;
+        this.chassisMesh.add(baseMesh);
+
+        // Hood
+        const hoodGeom = new THREE.BoxGeometry(chassisHalfWidth * 2, chassisHalfHeight * 0.6, chassisHalfLength * 0.8);
+        const hoodMesh = new THREE.Mesh(hoodGeom, carMat);
+        hoodMesh.position.set(0, chassisHalfHeight * 0.7, -chassisHalfLength * 0.6);
+        hoodMesh.castShadow = true;
+        this.chassisMesh.add(hoodMesh);
+
+        // Trunk
+        const trunkGeom = new THREE.BoxGeometry(chassisHalfWidth * 2, chassisHalfHeight * 0.6, chassisHalfLength * 0.5);
+        const trunkMesh = new THREE.Mesh(trunkGeom, carMat);
+        trunkMesh.position.set(0, chassisHalfHeight * 0.7, chassisHalfLength * 0.75);
+        trunkMesh.castShadow = true;
+        this.chassisMesh.add(trunkMesh);
+
+        // Side panels
+        const sideGeom = new THREE.BoxGeometry(0.2, chassisHalfHeight * 0.6, chassisHalfLength * 0.7);
+        const sideL = new THREE.Mesh(sideGeom, carMat);
+        sideL.position.set(-chassisHalfWidth + 0.1, chassisHalfHeight * 0.7, chassisHalfLength * 0.15);
+        sideL.castShadow = true;
+        this.chassisMesh.add(sideL);
+        const sideR = new THREE.Mesh(sideGeom, carMat);
+        sideR.position.set(chassisHalfWidth - 0.1, chassisHalfHeight * 0.7, chassisHalfLength * 0.15);
+        sideR.castShadow = true;
+        this.chassisMesh.add(sideR);
+
+        // Dashboard
+        const dashGeom = new THREE.BoxGeometry(chassisHalfWidth * 2, chassisHalfHeight * 0.5, 0.4);
+        const dashMesh = new THREE.Mesh(dashGeom, darkMat);
+        dashMesh.position.set(0, chassisHalfHeight * 0.65, -chassisHalfLength * 0.1);
+        this.chassisMesh.add(dashMesh);
+
+        // Windshield Frame
+        const frameGeom = new THREE.BoxGeometry(chassisHalfWidth * 2, chassisHalfHeight * 1.5, 0.1);
+        const frameMesh = new THREE.Mesh(frameGeom, darkMat);
+        frameMesh.position.set(0, chassisHalfHeight * 1.75, -chassisHalfLength * 0.15);
+        frameMesh.rotation.x = -Math.PI / 8;
+        this.chassisMesh.add(frameMesh);
+
+        // Windshield Glass
+        const glassGeom = new THREE.BoxGeometry(chassisHalfWidth * 1.8, chassisHalfHeight * 1.3, 0.12);
+        const glassMesh = new THREE.Mesh(glassGeom, glassMat);
+        glassMesh.position.set(0, chassisHalfHeight * 1.75, -chassisHalfLength * 0.15);
+        glassMesh.rotation.x = -Math.PI / 8;
+        this.chassisMesh.add(glassMesh);
+
+        // Mirrors
+        const mirrorGeom = new THREE.BoxGeometry(0.3, 0.2, 0.2);
+        const mirrorL = new THREE.Mesh(mirrorGeom, darkMat);
+        mirrorL.position.set(-chassisHalfWidth - 0.15, chassisHalfHeight * 1.5, -chassisHalfLength * 0.1);
+        this.chassisMesh.add(mirrorL);
+        const mirrorR = new THREE.Mesh(mirrorGeom, darkMat);
+        mirrorR.position.set(chassisHalfWidth + 0.15, chassisHalfHeight * 1.5, -chassisHalfLength * 0.1);
+        this.chassisMesh.add(mirrorR);
+
+        // Bumpers
+        const bumperGeom = new THREE.BoxGeometry(chassisHalfWidth * 2.1, 0.25, 0.3);
+        const frontBumper = new THREE.Mesh(bumperGeom, darkMat);
+        frontBumper.position.set(0, -chassisHalfHeight * 0.2, -chassisHalfLength - 0.05);
+        this.chassisMesh.add(frontBumper);
+
+        const rearBumper = new THREE.Mesh(bumperGeom, darkMat);
+        rearBumper.position.set(0, -chassisHalfHeight * 0.2, chassisHalfLength + 0.05);
+        this.chassisMesh.add(rearBumper);
 
         // Headlights
-        const headLightGeom = new THREE.PlaneGeometry(0.5, 0.2);
-        const headLightMat = new THREE.MeshBasicMaterial({ color: '#ffffff' });
-        const headL = new THREE.Mesh(headLightGeom, headLightMat);
-        headL.position.set(-0.7, 0, -chassisHalfLength - 0.01);
-        const headR = new THREE.Mesh(headLightGeom, headLightMat);
-        headR.position.set(0.7, 0, -chassisHalfLength - 0.01);
+        const headLightGeom = new THREE.BoxGeometry(0.5, 0.2, 0.1);
+        const headL = new THREE.Mesh(headLightGeom, lightMat);
+        headL.position.set(-0.7, chassisHalfHeight * 0.7, -chassisHalfLength - 0.01);
+        const headR = new THREE.Mesh(headLightGeom, lightMat);
+        headR.position.set(0.7, chassisHalfHeight * 0.7, -chassisHalfLength - 0.01);
         this.chassisMesh.add(headL);
         this.chassisMesh.add(headR);
+
+        // Tail lights
+        const tailLightGeom = new THREE.BoxGeometry(0.4, 0.15, 0.1);
+        const tailL = new THREE.Mesh(tailLightGeom, tailLightMat);
+        tailL.position.set(-0.7, chassisHalfHeight * 0.7, chassisHalfLength + 0.01);
+        const tailR = new THREE.Mesh(tailLightGeom, tailLightMat);
+        tailR.position.set(0.7, chassisHalfHeight * 0.7, chassisHalfLength + 0.01);
+        this.chassisMesh.add(tailL);
+        this.chassisMesh.add(tailR);
+
+        // Exhaust
+        const exhaustGeom = new THREE.CylinderGeometry(0.1, 0.1, 0.4, 8);
+        const exhaustMat = new THREE.MeshStandardMaterial({ color: '#aaaaaa', metalness: 0.8, roughness: 0.2 });
+        const exhaustL = new THREE.Mesh(exhaustGeom, exhaustMat);
+        exhaustL.rotation.x = Math.PI / 2;
+        exhaustL.position.set(-0.2, -chassisHalfHeight * 0.9, chassisHalfLength + 0.1);
+        const exhaustR = new THREE.Mesh(exhaustGeom, exhaustMat);
+        exhaustR.rotation.x = Math.PI / 2;
+        exhaustR.position.set(0.2, -chassisHalfHeight * 0.9, chassisHalfLength + 0.1);
+        this.chassisMesh.add(exhaustL);
+        this.chassisMesh.add(exhaustR);
+
+        // Steering wheel (Right side)
+        const wheelGeom2 = new THREE.TorusGeometry(0.25, 0.05, 8, 16);
+        const steeringWheel = new THREE.Mesh(wheelGeom2, darkMat);
+        steeringWheel.position.set(0.5, chassisHalfHeight * 1.0, 0.1);
+        steeringWheel.rotation.x = -Math.PI / 4;
+        this.chassisMesh.add(steeringWheel);
+
+        // Cat driver (Right side)
+        const catGroup = new THREE.Group();
+        const catHeadGeom = new THREE.SphereGeometry(0.35, 16, 16);
+        const catMat = new THREE.MeshStandardMaterial({ color: '#cccccc', roughness: 0.9, flatShading: true });
+        const catHead = new THREE.Mesh(catHeadGeom, catMat);
+        catGroup.add(catHead);
+
+        const earGeom = new THREE.ConeGeometry(0.15, 0.25, 4);
+        const earL = new THREE.Mesh(earGeom, catMat);
+        earL.position.set(-0.2, 0.25, 0);
+        earL.rotation.z = Math.PI / 6;
+        catGroup.add(earL);
+        const earR = new THREE.Mesh(earGeom, catMat);
+        earR.position.set(0.2, 0.25, 0);
+        earR.rotation.z = -Math.PI / 6;
+        catGroup.add(earR);
+
+        catGroup.position.set(0.5, chassisHalfHeight * 1.4, 0.4);
+        this.chassisMesh.add(catGroup);
+
+        // Seats
+        const seatGeom = new THREE.BoxGeometry(0.8, 0.8, 0.2);
+        const seatL = new THREE.Mesh(seatGeom, darkMat);
+        seatL.position.set(-0.5, chassisHalfHeight * 0.8, 0.7);
+        seatL.rotation.x = -Math.PI / 12;
+        this.chassisMesh.add(seatL);
+        const seatR = new THREE.Mesh(seatGeom, darkMat);
+        seatR.position.set(0.5, chassisHalfHeight * 0.8, 0.7);
+        seatR.rotation.x = -Math.PI / 12;
+        this.chassisMesh.add(seatR);
 
         this.scene.add(this.chassisMesh);
 
