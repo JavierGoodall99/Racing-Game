@@ -21,10 +21,25 @@ const getPreviewPath = () => {
   return d;
 };
 
+const getNebulaPath = () => {
+  let d = "";
+  for(let i=0; i<=120; i++) {
+    const t = (i/120) * Math.PI * 2;
+    const r = 70 + 25 * Math.sin(5*t);
+    const x = r * Math.cos(t);
+    const y = r * Math.sin(t);
+    if(i===0) d += `M ${x} ${y} `;
+    else d += `L ${x} ${y} `;
+  }
+  d += "Z";
+  return d;
+};
+
 const TRACKS = [
   { id: 'circle', name: 'Apex Circuit', description: 'High-speed circular track. Perfect for top speed testing.', difficulty: 'Easy' },
   { id: 'oval', name: 'Neon Oval', description: 'Elongated oval with long straights and tight curves.', difficulty: 'Medium' },
   { id: 'serpentine', name: 'Serpent\'s Tail', description: 'A highly technical circuit with sharp, sweeping bends.', difficulty: 'Hard' },
+  { id: 'nebula', name: 'Nebula Knot', description: 'An extreme 5-lobed hyper-circuit. Only for the best.', difficulty: 'Expert' },
 ];
 
 export default function TrackSelect({ onBack, selectedTrack, onSelectTrack }: TrackSelectProps) {
@@ -96,7 +111,10 @@ export default function TrackSelect({ onBack, selectedTrack, onSelectTrack }: Tr
                   <div className="flex justify-between w-full mb-2">
                     <span className="text-2xl font-black italic uppercase tracking-wider">{track.name}</span>
                     <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded ${
-                      track.difficulty === 'Easy' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'
+                      track.difficulty === 'Easy' ? 'bg-green-500/20 text-green-400' : 
+                      track.difficulty === 'Medium' ? 'bg-yellow-500/20 text-yellow-400' : 
+                      track.difficulty === 'Hard' ? 'bg-orange-500/20 text-orange-400' :
+                      'bg-purple-500/20 text-purple-400'
                     }`}>
                       {track.difficulty}
                     </span>
@@ -114,9 +132,13 @@ export default function TrackSelect({ onBack, selectedTrack, onSelectTrack }: Tr
                       <svg viewBox="-150 -100 300 200" className="w-32 h-24">
                         <ellipse cx="0" cy="0" rx="120" ry="60" fill="none" stroke={isSelected ? "#00E5FF" : "white"} strokeWidth="8" className={isSelected ? "opacity-100" : "opacity-40"} />
                       </svg>
-                    ) : (
+                    ) : track.id === 'serpentine' ? (
                       <svg viewBox="-120 -120 240 240" className="w-24 h-24">
                         <path d={getPreviewPath()} fill="none" stroke={isSelected ? "#00E5FF" : "white"} strokeWidth="8" className={isSelected ? "opacity-100" : "opacity-40"} />
+                      </svg>
+                    ) : (
+                      <svg viewBox="-120 -120 240 240" className="w-24 h-24">
+                        <path d={getNebulaPath()} fill="none" stroke={isSelected ? "#b026ff" : "white"} strokeWidth="8" className={isSelected ? "opacity-100" : "opacity-40"} />
                       </svg>
                     )}
                   </div>
@@ -124,7 +146,7 @@ export default function TrackSelect({ onBack, selectedTrack, onSelectTrack }: Tr
                   {isSelected && (
                     <motion.div 
                       layoutId="activeTrack"
-                      className="absolute inset-0 border-2 border-[#00E5FF] rounded-lg pointer-events-none"
+                      className={`absolute inset-0 border-2 rounded-lg pointer-events-none ${track.id === 'nebula' ? 'border-[#b026ff]' : 'border-[#00E5FF]'}`}
                     />
                   )}
                 </motion.button>

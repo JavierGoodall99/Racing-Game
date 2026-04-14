@@ -21,6 +21,20 @@ const getSerpentinePath = () => {
   return d;
 };
 
+const getNebulaPath = () => {
+  let d = "";
+  for(let i=0; i<=120; i++) {
+    const t = (i/120) * Math.PI * 2;
+    const r = 700 + 250 * Math.sin(5*t);
+    const x = r * Math.cos(t);
+    const y = r * Math.sin(t);
+    if(i===0) d += `M ${x} ${y} `;
+    else d += `L ${x} ${y} `;
+  }
+  d += "Z";
+  return d;
+};
+
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<GameEngine | null>(null);
@@ -355,7 +369,7 @@ export default function App() {
               className="relative w-48 h-48 bg-black/40 backdrop-blur-md rounded-full border border-white/10 overflow-hidden shadow-2xl"
             >
               {/* Track Path */}
-              <svg viewBox={trackId === 'circle' ? "-500 -500 1000 1000" : trackId === 'oval' ? "-900 -500 1800 1000" : "-900 -900 1800 1800"} className="w-full h-full">
+              <svg viewBox={trackId === 'circle' ? "-500 -500 1000 1000" : trackId === 'oval' ? "-900 -500 1800 1000" : trackId === 'serpentine' ? "-900 -900 1800 1800" : "-1000 -1000 2000 2000"} className="w-full h-full">
                 {trackId === 'circle' ? (
                   <>
                     <circle 
@@ -396,7 +410,7 @@ export default function App() {
                     {/* Start/Finish Line Indicator */}
                     <line x1="780" y1="0" x2="820" y2="0" stroke="#E91E63" strokeWidth="10" className="opacity-80" />
                   </>
-                ) : (
+                ) : trackId === 'serpentine' ? (
                   <>
                     <path 
                       d={getSerpentinePath()} 
@@ -416,6 +430,26 @@ export default function App() {
                     {/* Start/Finish Line Indicator */}
                     <line x1="570" y1="30" x2="630" y2="-30" stroke="#E91E63" strokeWidth="10" className="opacity-80" />
                   </>
+                ) : (
+                  <>
+                    <path 
+                      d={getNebulaPath()} 
+                      fill="none" 
+                      stroke="white" 
+                      strokeWidth="40" 
+                      className="opacity-10" 
+                    />
+                    <path 
+                      d={getNebulaPath()} 
+                      fill="none" 
+                      stroke="white" 
+                      strokeWidth="2" 
+                      strokeDasharray="10 10" 
+                      className="opacity-20" 
+                    />
+                    {/* Start/Finish Line Indicator */}
+                    <line x1="670" y1="30" x2="730" y2="-30" stroke="#E91E63" strokeWidth="10" className="opacity-80" />
+                  </>
                 )}
 
                 {/* Player Marker */}
@@ -434,7 +468,7 @@ export default function App() {
               {/* Label */}
               <div className="absolute top-4 left-1/2 -translate-x-1/2 w-max">
                 <span className="text-[8px] font-black uppercase tracking-[0.3em] text-white/40">
-                  {trackId === 'circle' ? 'Apex Circuit' : trackId === 'oval' ? 'Neon Oval' : "Serpent's Tail"}
+                  {trackId === 'circle' ? 'Apex Circuit' : trackId === 'oval' ? 'Neon Oval' : trackId === 'serpentine' ? "Serpent's Tail" : "Nebula Knot"}
                 </span>
               </div>
             </motion.div>

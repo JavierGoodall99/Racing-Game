@@ -157,6 +157,18 @@ export class GameEngine {
     }
 
     private getTrackPoint(angle: number): { x: number, z: number, dx: number, dz: number } {
+        if (this.trackId === 'nebula') {
+            const R = 700;
+            const A = 250;
+            const N = 5;
+            const r = R + A * Math.sin(N * angle);
+            const dr = A * N * Math.cos(N * angle);
+            const x = r * Math.cos(angle);
+            const z = r * Math.sin(angle);
+            const dx = dr * Math.cos(angle) - r * Math.sin(angle);
+            const dz = dr * Math.sin(angle) + r * Math.cos(angle);
+            return { x, z, dx, dz };
+        }
         if (this.trackId === 'serpentine') {
             const R = 600;
             const A = 200;
@@ -179,8 +191,8 @@ export class GameEngine {
     }
 
     private createScenicTrack(layerStatic: number) {
-        const segments = this.trackId === 'serpentine' ? 360 : (this.trackId === 'oval' ? 240 : 120);
-        const maxRadius = this.trackId === 'serpentine' ? 800 : (this.trackId === 'oval' ? 800 : 400);
+        const segments = this.trackId === 'nebula' ? 480 : (this.trackId === 'serpentine' ? 360 : (this.trackId === 'oval' ? 240 : 120));
+        const maxRadius = this.trackId === 'nebula' ? 950 : (this.trackId === 'serpentine' ? 800 : (this.trackId === 'oval' ? 800 : 400));
         const segmentLength = (2 * Math.PI * maxRadius) / segments + 2; // +2 for overlap
         
         // --- Physics Ground Plane (Seamless) ---
@@ -199,25 +211,25 @@ export class GameEngine {
         // Visual Grass Plane
         const grassGeom = new THREE.PlaneGeometry(4000, 4000);
         grassGeom.rotateX(-Math.PI / 2);
-        const grassMat = new THREE.MeshStandardMaterial({ color: this.trackId === 'serpentine' ? '#1a0505' : (this.trackId === 'oval' ? '#0a0a1a' : '#388E3C'), roughness: 1 });
+        const grassMat = new THREE.MeshStandardMaterial({ color: this.trackId === 'nebula' ? '#0a001a' : (this.trackId === 'serpentine' ? '#1a0505' : (this.trackId === 'oval' ? '#0a0a1a' : '#388E3C')), roughness: 1 });
         const grass = new THREE.Mesh(grassGeom, grassMat);
         grass.position.y = -0.15;
         grass.receiveShadow = true;
         this.scene.add(grass);
 
         const roadMat = new THREE.MeshStandardMaterial({ 
-            color: this.trackId === 'serpentine' ? '#151515' : (this.trackId === 'oval' ? '#111111' : '#222222'), 
+            color: this.trackId === 'nebula' ? '#0f0f1a' : (this.trackId === 'serpentine' ? '#151515' : (this.trackId === 'oval' ? '#111111' : '#222222')), 
             roughness: 0.7,
             metalness: 0.2
         });
         const roadGeom = new THREE.BoxGeometry(this.roadWidth, 0.2, segmentLength);
 
-        const terrainMat = new THREE.MeshStandardMaterial({ color: this.trackId === 'serpentine' ? '#2a0a0a' : (this.trackId === 'oval' ? '#1a1a2e' : '#4CAF50'), roughness: 1.0 });
+        const terrainMat = new THREE.MeshStandardMaterial({ color: this.trackId === 'nebula' ? '#1a0a2e' : (this.trackId === 'serpentine' ? '#2a0a0a' : (this.trackId === 'oval' ? '#1a1a2e' : '#4CAF50')), roughness: 1.0 });
         const terrainGeom = new THREE.BoxGeometry(400, 0.1, segmentLength);
 
         const lineGeom = new THREE.PlaneGeometry(0.6, 4);
         lineGeom.rotateX(-Math.PI / 2);
-        const lineMat = new THREE.MeshBasicMaterial({ color: this.trackId === 'serpentine' ? '#FF3366' : (this.trackId === 'oval' ? '#00E5FF' : '#FFD700') });
+        const lineMat = new THREE.MeshBasicMaterial({ color: this.trackId === 'nebula' ? '#b026ff' : (this.trackId === 'serpentine' ? '#FF3366' : (this.trackId === 'oval' ? '#00E5FF' : '#FFD700')) });
 
         const treeTrunkGeom = new THREE.CylinderGeometry(0.6, 0.8, 5);
         const treeTrunkMat = new THREE.MeshStandardMaterial({ color: '#4E342E' });
@@ -231,12 +243,12 @@ export class GameEngine {
         const bannerMat = new THREE.MeshStandardMaterial({ color: '#E91E63' });
 
         // Barrier Physics - Using MANY segments for barriers to follow the curve perfectly
-        const barrierSegments = this.trackId === 'serpentine' ? 720 : (this.trackId === 'oval' ? 480 : 360); 
+        const barrierSegments = this.trackId === 'nebula' ? 960 : (this.trackId === 'serpentine' ? 720 : (this.trackId === 'oval' ? 480 : 360)); 
         const barrierSegmentLength = (2 * Math.PI * maxRadius) / barrierSegments + 1;
         const barrierHeight = 10;
         const barrierThickness = 3;
         const barrierGeom = new THREE.BoxGeometry(barrierThickness, barrierHeight, barrierSegmentLength); 
-        const barrierMat = new THREE.MeshStandardMaterial({ color: this.trackId === 'serpentine' ? '#FF3366' : (this.trackId === 'oval' ? '#00E5FF' : '#ffffff'), transparent: true, opacity: this.trackId === 'circle' ? 0.08 : 0.2 });
+        const barrierMat = new THREE.MeshStandardMaterial({ color: this.trackId === 'nebula' ? '#b026ff' : (this.trackId === 'serpentine' ? '#FF3366' : (this.trackId === 'oval' ? '#00E5FF' : '#ffffff')), transparent: true, opacity: this.trackId === 'circle' ? 0.08 : 0.2 });
         // Large convexRadius (1.0) makes the edges extremely round, preventing any catching
         const barrierShape = box.create({ halfExtents: [barrierThickness / 2, barrierHeight / 2, barrierSegmentLength / 2], convexRadius: 1.0 });
 
