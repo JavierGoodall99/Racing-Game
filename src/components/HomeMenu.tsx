@@ -3,11 +3,9 @@ import { Play, Settings, Trophy, Info, Map } from 'lucide-react';
 
 interface HomeMenuProps {
   onStart: () => void;
-  onOpenGarage: () => void;
-  onOpenTrackSelect: () => void;
 }
 
-export default function HomeMenu({ onStart, onOpenGarage, onOpenTrackSelect }: HomeMenuProps) {
+export default function HomeMenu({ onStart }: HomeMenuProps) {
   return (
     <div className="absolute inset-0 z-[100] flex flex-col items-center justify-center bg-black overflow-hidden font-sans">
       {/* Background Elements */}
@@ -70,14 +68,11 @@ export default function HomeMenu({ onStart, onOpenGarage, onOpenTrackSelect }: H
 
           <div className="grid grid-cols-2 gap-4">
             {[
-              { icon: Trophy, label: 'Garage', onClick: onOpenGarage },
-              { icon: Map, label: 'Tracks', onClick: onOpenTrackSelect },
               { icon: Settings, label: 'Settings' },
               { icon: Info, label: 'About' }
             ].map((item, i) => (
               <motion.button
                 key={item.label}
-                onClick={item.onClick}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.6 + (i * 0.1) }}

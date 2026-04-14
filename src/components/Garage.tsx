@@ -5,6 +5,7 @@ interface GarageProps {
   onBack: () => void;
   selectedColor: string;
   onSelectColor: (color: string) => void;
+  onNext?: () => void;
 }
 
 const COLORS = [
@@ -17,7 +18,7 @@ const COLORS = [
   { id: 'black', hex: '#111111', name: 'Stealth Black' },
 ];
 
-export default function Garage({ onBack, selectedColor, onSelectColor }: GarageProps) {
+export default function Garage({ onBack, selectedColor, onSelectColor, onNext }: GarageProps) {
   return (
     <div className="absolute inset-0 z-[100] flex bg-black overflow-hidden font-sans text-white">
       {/* Background Elements */}
@@ -92,7 +93,19 @@ export default function Garage({ onBack, selectedColor, onSelectColor }: GarageP
 
         <div className="pt-8 border-t border-white/10">
           <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest block mb-1">Active Chassis</span>
-          <span className="text-sm font-mono text-white/80">V8-APEX INTERCEPTOR</span>
+          <span className="text-sm font-mono text-white/80 mb-8 block">V8-APEX INTERCEPTOR</span>
+
+          {onNext && (
+            <motion.button
+              whileHover={{ scale: 1.05, x: 10 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={onNext}
+              className="w-full bg-white text-black py-4 px-6 rounded-sm flex items-center justify-between group shadow-[0_0_30px_rgba(255,255,255,0.2)]"
+            >
+              <span className="text-sm font-black italic uppercase tracking-wider">Select Track</span>
+              <ChevronLeft className="w-5 h-5 rotate-180 group-hover:translate-x-1 transition-transform" />
+            </motion.button>
+          )}
         </div>
       </div>
 

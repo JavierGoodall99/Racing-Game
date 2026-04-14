@@ -41,6 +41,7 @@ export default function App() {
   const [isStarted, setIsStarted] = useState(false);
   const [showGarage, setShowGarage] = useState(false);
   const [showTrackSelect, setShowTrackSelect] = useState(false);
+  const [isRacingFlow, setIsRacingFlow] = useState(false);
   const [carColor, setCarColor] = useState('#FF5722');
   const [trackId, setTrackId] = useState('circle');
   
@@ -65,18 +66,26 @@ export default function App() {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
   };
 
-  const initGame = () => {
+  const initGame = (selectedId?: string) => {
     if (engineRef.current) {
       engineRef.current.cleanup();
     }
     if (canvasRef.current) {
-      engineRef.current = new GameEngine(canvasRef.current, setGameState, carColor, trackId);
+      engineRef.current = new GameEngine(canvasRef.current, setGameState, carColor, selectedId || trackId);
     }
   };
 
   const handleStart = () => {
+    setIsRacingFlow(true);
+    setShowGarage(true);
+  };
+
+  const handleConfirmTrack = (id: string) => {
+    setTrackId(id);
+    setIsRacingFlow(false);
+    setShowTrackSelect(false);
     setIsStarted(true);
-    initGame();
+    initGame(id);
   };
 
   const handleExit = () => {
@@ -124,8 +133,6 @@ export default function App() {
           >
             <HomeMenu 
               onStart={handleStart} 
-              onOpenGarage={() => setShowGarage(true)} 
-              onOpenTrackSelect={() => setShowTrackSelect(true)}
             />
           </motion.div>
         )}
@@ -140,9 +147,16 @@ export default function App() {
             className="absolute inset-0 z-[110]"
           >
             <Garage 
-              onBack={() => setShowGarage(false)} 
+              onBack={() => {
+                setShowGarage(false);
+                setIsRacingFlow(false);
+              }} 
               selectedColor={carColor}
               onSelectColor={setCarColor}
+              onNext={isRacingFlow ? () => {
+                setShowGarage(false);
+                setShowTrackSelect(true);
+              } : undefined}
             />
           </motion.div>
         )}
@@ -157,9 +171,20 @@ export default function App() {
             className="absolute inset-0 z-[110]"
           >
             <TrackSelect 
-              onBack={() => setShowTrackSelect(false)} 
+              onBack={() => {
+                setShowTrackSelect(false);
+                if (isRacingFlow) {
+                  setShowGarage(true);
+                }
+              }} 
               selectedTrack={trackId}
-              onSelectTrack={setTrackId}
+              onSelectTrack={(id) => {
+                if (isRacingFlow) {
+                  handleConfirmTrack(id);
+                } else {
+                  setTrackId(id);
+                }
+              }}
             />
           </motion.div>
         )}
